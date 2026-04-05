@@ -311,8 +311,10 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
 /* Editor */
 #editor-wrap {
   flex: 1;
+  min-height: 0;
   position: relative;
   display: flex;
+  overflow: hidden;
 }
 #editor {
   flex: 1;
@@ -417,6 +419,7 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
 #preview {
   display: none;
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 16px;
   background: var(--bg-primary);

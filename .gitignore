@@ -1,0 +1,14 @@
+# Sensitive – never commit
+tokens.json
+.env
+
+# User notes (personal data)
+notes/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Docker
+*.log

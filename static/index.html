@@ -1,0 +1,1215 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>HexNotes</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#a855f7">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="icon" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+/* === SECTION: CSS RESET & VARIABLES === */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg-primary: #0d0d0d;
+  --bg-sidebar: #141414;
+  --bg-card: #1a1a1a;
+  --bg-card-active: #222222;
+  --text-primary: #e8e8e8;
+  --text-muted: #666666;
+  --accent: #a855f7;
+  --accent-dim: #3b1f5e;
+  --border: #2a2a2a;
+  --error-bg: #3b0a0a;
+  --error-text: #f87171;
+  --offline-bg: #422006;
+  --offline-text: #fef08a;
+  --font: 'JetBrains Mono', Consolas, 'Courier New', monospace;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg-primary: #f5f5f5;
+    --bg-sidebar: #ebebeb;
+    --bg-card: #e0e0e0;
+    --bg-card-active: #d4d4d4;
+    --text-primary: #1a1a1a;
+    --text-muted: #888888;
+    --accent: #7c3aed;
+    --accent-dim: #ddd6fe;
+    --border: #cccccc;
+    --error-bg: #fee2e2;
+    --error-text: #b91c1c;
+    --offline-bg: #fef9c3;
+    --offline-text: #854d0e;
+  }
+}
+
+html, body {
+  height: 100%;
+  font-family: var(--font);
+  font-size: 14px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  overflow: hidden;
+}
+
+button { font-family: var(--font); cursor: pointer; border: none; background: none; color: var(--text-primary); }
+input { font-family: var(--font); color: var(--text-primary); background: var(--bg-primary); border: 1px solid var(--border); }
+
+/* === SECTION: AUTH SCREEN === */
+#auth-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 16px;
+}
+#auth-screen h1 { font-size: 24px; color: var(--accent); }
+#auth-screen input {
+  width: 300px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+#auth-screen button {
+  background: var(--accent);
+  color: white;
+  padding: 10px 32px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
+}
+#auth-screen button:hover { opacity: 0.9; }
+#auth-error { color: var(--error-text); font-size: 12px; display: none; }
+
+/* === SECTION: APP LAYOUT === */
+#app { display: none; height: 100%; flex-direction: column; }
+#app.active { display: flex; }
+
+/* Topbar */
+#topbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-sidebar);
+  min-height: 48px;
+  flex-shrink: 0;
+}
+#btn-menu { font-size: 20px; padding: 4px 8px; }
+#btn-back { font-size: 20px; padding: 4px 8px; display: none; }
+#topbar-title { font-weight: 700; font-size: 15px; color: var(--accent); margin-right: auto; }
+#search-input {
+  flex: 1;
+  max-width: 400px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+#search-input::placeholder { color: var(--text-muted); }
+#btn-new {
+  background: var(--accent);
+  color: white;
+  padding: 6px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+#btn-new:hover { opacity: 0.9; }
+#btn-sync {
+  display: none;
+  background: none;
+  font-size: 16px;
+  padding: 4px 8px;
+  color: var(--text-muted);
+}
+#btn-sync:hover { color: var(--accent); }
+@keyframes spin { to { transform: rotate(360deg); } }
+#btn-sync.syncing { animation: spin 0.6s linear; color: var(--accent); }
+
+/* Main area */
+#main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Sidebar */
+#sidebar {
+  width: 300px;
+  min-width: 300px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-sidebar);
+  overflow-y: auto;
+  flex-shrink: 0;
+  transition: margin-left 0.2s;
+}
+#sidebar.collapsed {
+  margin-left: -300px;
+}
+#notes-list {
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  gap: 2px;
+}
+
+/* Note card */
+.note-card {
+  padding: 10px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  position: relative;
+}
+.note-card:hover { background: var(--bg-card); }
+.note-card.active {
+  background: var(--bg-card-active);
+  border-left-color: var(--accent);
+}
+.note-card.pinned {
+  border-left-color: var(--accent);
+}
+.pin-btn {
+  position: absolute;
+  top: 8px;
+  right: 6px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  color: var(--text-muted);
+  line-height: 1;
+  z-index: 1;
+}
+.note-card:hover .pin-btn,
+.note-card.pinned .pin-btn {
+  opacity: 1;
+}
+.note-card.pinned .pin-btn {
+  color: var(--accent);
+}
+.note-card-preview {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+  padding-right: 24px;
+}
+.note-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.tag-chip {
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 9999px;
+}
+.note-card-date {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+/* Editor area */
+#editor-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* Filename row */
+#filename-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-sidebar);
+  min-height: 40px;
+  flex-shrink: 0;
+}
+#filename-icon { font-size: 14px; }
+#filename-display {
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#filename-display:hover { color: var(--accent); }
+#filename-edit-btn {
+  padding: 8px 12px;
+  font-size: 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+#filename-edit-btn:hover { color: var(--accent); }
+#filename-pin-btn {
+  padding: 8px 10px;
+  font-size: 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+#filename-pin-btn:hover { color: var(--accent); }
+#filename-delete-btn {
+  padding: 8px 10px;
+  font-size: 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+#filename-delete-btn:hover { color: #f87171; }
+#filename-input {
+  flex: 1;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  display: none;
+}
+#filename-error {
+  font-size: 11px;
+  color: var(--error-text);
+  padding: 2px 16px;
+  display: none;
+}
+
+/* Error bar */
+#error-bar {
+  display: none;
+  padding: 8px 16px;
+  background: var(--error-bg);
+  color: var(--error-text);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+/* Editor */
+#editor-wrap {
+  flex: 1;
+  position: relative;
+  display: flex;
+}
+#editor {
+  flex: 1;
+  resize: none;
+  border: none;
+  outline: none;
+  padding: 16px;
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.6;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  tab-size: 2;
+}
+#save-indicator {
+  position: absolute;
+  bottom: 12px;
+  right: 16px;
+  font-size: 14px;
+  color: var(--accent);
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+}
+
+/* Empty state */
+#empty-state {
+  display: none;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+/* Offline bar */
+#offline-bar {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 32px;
+  background: var(--offline-bg);
+  color: var(--offline-text);
+  font-size: 12px;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+
+/* FAB (mobile) */
+#fab {
+  display: none;
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: white;
+  font-size: 28px;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+#fab:hover { opacity: 0.9; }
+
+/* Confirm dialog */
+#confirm-overlay {
+  display: none;
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 300;
+  align-items: center;
+  justify-content: center;
+}
+#confirm-overlay.active { display: flex; }
+#confirm-dialog {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 24px;
+  max-width: 360px;
+  width: 90%;
+  text-align: center;
+}
+#confirm-dialog p { margin-bottom: 16px; font-size: 14px; }
+#confirm-dialog .btn-row { display: flex; gap: 12px; justify-content: center; }
+#confirm-dialog button {
+  padding: 8px 24px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 700;
+}
+#btn-confirm-yes { background: var(--error-text); color: white; }
+#btn-confirm-no { background: var(--border); }
+
+/* === SECTION: MOBILE === */
+@media (max-width: 768px) {
+  #sidebar {
+    position: fixed;
+    top: 48px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    min-width: 100%;
+    z-index: 50;
+    margin-left: 0;
+    display: none;
+  }
+  #sidebar.mobile-visible {
+    display: block;
+  }
+  #btn-menu { display: none; }
+  #btn-back { display: block; }
+  #search-input { max-width: none; }
+  #fab { display: flex; }
+  #btn-new { display: none; }
+  #btn-sync { display: block; }
+  #editor { padding: 12px; }
+}
+</style>
+</head>
+<body>
+
+<!-- === SECTION: AUTH SCREEN HTML === -->
+<div id="auth-screen">
+  <h1>HexNotes</h1>
+  <p style="color: var(--text-muted)">Enter your API token</p>
+  <input type="text" id="auth-token" placeholder="tok_..." autocomplete="off" spellcheck="false">
+  <button id="auth-submit">Connect</button>
+  <p id="auth-error">Invalid token</p>
+</div>
+
+<!-- === SECTION: APP HTML === -->
+<div id="app">
+  <!-- Topbar -->
+  <div id="topbar">
+    <button id="btn-back" title="Back">←</button>
+    <button id="btn-menu" title="Toggle sidebar">☰</button>
+    <span id="topbar-title">HexNotes</span>
+    <input type="text" id="search-input" placeholder="Search..." spellcheck="false">
+    <button id="btn-sync" title="Sync notes">↻</button>
+    <button id="btn-new" title="New note (Ctrl+N)">+ New</button>
+  </div>
+
+  <!-- Main -->
+  <div id="main">
+    <!-- Sidebar -->
+    <div id="sidebar">
+      <div id="notes-list"></div>
+    </div>
+
+    <!-- Editor area -->
+    <div id="editor-area">
+      <div id="filename-row">
+        <span id="filename-icon">📄</span>
+        <span id="filename-display"></span>
+        <input type="text" id="filename-input" spellcheck="false">
+        <button id="filename-edit-btn" title="Rename">✎</button>
+        <button id="filename-pin-btn" title="Pin to top">📌</button>
+        <button id="filename-delete-btn" title="Delete note">🗑</button>
+      </div>
+      <div id="filename-error"></div>
+      <div id="error-bar"></div>
+      <div id="editor-wrap">
+        <textarea id="editor" spellcheck="false"></textarea>
+        <span id="save-indicator"></span>
+      </div>
+      <div id="empty-state">Select or create a note</div>
+    </div>
+  </div>
+</div>
+
+<!-- FAB -->
+<button id="fab">+</button>
+
+<!-- Offline bar -->
+<div id="offline-bar">● Offline – changes will be saved when you're back online</div>
+
+<!-- Delete confirm dialog -->
+<div id="confirm-overlay">
+  <div id="confirm-dialog">
+    <p>Delete this note?</p>
+    <div class="btn-row">
+      <button id="btn-confirm-no">Cancel</button>
+      <button id="btn-confirm-yes">Delete</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// === SECTION: STATE ===
+let apiToken = localStorage.getItem('hexnotes_token');
+let notes = [];
+let activeNoteId = null;
+let isNew = false;
+let newNoteFilename = null;
+let pendingContent = null;
+let isSaving = false;
+let saveTimer = null;
+let retryCount = 0;
+let retryTimer = null;
+let isOnline = navigator.onLine;
+let healthInterval = null;
+let sidebarCollapsed = localStorage.getItem('hexnotes_sidebar') === 'collapsed';
+let isMobile = window.innerWidth <= 768;
+let mobileShowList = false;
+let isRenaming = false;
+
+// === SECTION: DOM REFS ===
+const $authScreen = document.getElementById('auth-screen');
+const $authToken = document.getElementById('auth-token');
+const $authSubmit = document.getElementById('auth-submit');
+const $authError = document.getElementById('auth-error');
+const $app = document.getElementById('app');
+const $topbar = document.getElementById('topbar');
+const $btnMenu = document.getElementById('btn-menu');
+const $btnBack = document.getElementById('btn-back');
+const $searchInput = document.getElementById('search-input');
+const $btnNew = document.getElementById('btn-new');
+const $btnSync = document.getElementById('btn-sync');
+const $sidebar = document.getElementById('sidebar');
+const $notesList = document.getElementById('notes-list');
+const $editorArea = document.getElementById('editor-area');
+const $filenameRow = document.getElementById('filename-row');
+const $filenameDisplay = document.getElementById('filename-display');
+const $filenameInput = document.getElementById('filename-input');
+const $filenameEditBtn = document.getElementById('filename-edit-btn');
+const $filenameDeleteBtn = document.getElementById('filename-delete-btn');
+const $filenamePinBtn = document.getElementById('filename-pin-btn');
+const $filenameError = document.getElementById('filename-error');
+const $errorBar = document.getElementById('error-bar');
+const $editor = document.getElementById('editor');
+const $saveIndicator = document.getElementById('save-indicator');
+const $emptyState = document.getElementById('empty-state');
+const $offlineBar = document.getElementById('offline-bar');
+const $fab = document.getElementById('fab');
+const $confirmOverlay = document.getElementById('confirm-overlay');
+const $btnConfirmYes = document.getElementById('btn-confirm-yes');
+const $btnConfirmNo = document.getElementById('btn-confirm-no');
+
+// === SECTION: API ===
+async function apiFetch(path, options = {}) {
+  const headers = { 'Authorization': `Bearer ${apiToken}`, ...options.headers };
+  if (options.body && typeof options.body === 'object') {
+    headers['Content-Type'] = 'application/json';
+    options.body = JSON.stringify(options.body);
+  }
+  const res = await fetch(path, { ...options, headers });
+  return res;
+}
+
+// === SECTION: AUTH ===
+function showAuth() {
+  $authScreen.style.display = 'flex';
+  $app.classList.remove('active');
+  $authToken.focus();
+}
+
+function showApp() {
+  $authScreen.style.display = 'none';
+  $app.classList.add('active');
+  applySidebarState();
+  loadNotes();
+}
+
+$authSubmit.addEventListener('click', async () => {
+  const token = $authToken.value.trim();
+  if (!token) return;
+  try {
+    const res = await fetch('/health');
+    if (!res.ok) throw new Error();
+    // Try to list notes to validate token
+    const r = await fetch('/api/notes?limit=1', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (r.ok) {
+      apiToken = token;
+      localStorage.setItem('hexnotes_token', token);
+      showApp();
+    } else {
+      $authError.style.display = 'block';
+    }
+  } catch {
+    $authError.textContent = 'Kan inte ansluta till servern';
+    $authError.style.display = 'block';
+  }
+});
+
+$authToken.addEventListener('keydown', e => {
+  if (e.key === 'Enter') $authSubmit.click();
+});
+
+// === SECTION: NOTES LIST ===
+async function loadNotes() {
+  try {
+    const q = $searchInput.value.trim();
+    let url = '/api/notes?limit=200';
+    if (q) url += `&q=${encodeURIComponent(q)}`;
+    const res = await apiFetch(url);
+    if (!res.ok) throw new Error();
+    notes = await res.json();
+    renderNotesList();
+    // Restore active note
+    if (!activeNoteId && !isNew) {
+      const lastId = localStorage.getItem('hexnotes_lastNote');
+      if (lastId && notes.find(n => n.id === lastId)) {
+        openNote(lastId);
+      } else if (notes.length > 0) {
+        if (isMobile) {
+          // On mobile first load, open the most recent note
+          openNote(notes[0].id);
+        } else {
+          openNote(notes[0].id);
+        }
+      } else {
+        showEmpty();
+      }
+    } else {
+      renderNotesList();
+    }
+  } catch {
+    // Probably offline or auth error
+  }
+}
+
+function renderNotesList() {
+  $notesList.innerHTML = '';
+  for (const n of notes) {
+    const card = document.createElement('div');
+    card.className = 'note-card' + (n.id === activeNoteId ? ' active' : '') + (n.pinned ? ' pinned' : '');
+    card.dataset.id = n.id;
+
+    const preview = document.createElement('div');
+    preview.className = 'note-card-preview';
+    preview.textContent = n.filename;
+
+    const meta = document.createElement('div');
+    meta.className = 'note-card-meta';
+
+    for (const t of n.tags.slice(0, 4)) {
+      const chip = document.createElement('span');
+      chip.className = 'tag-chip';
+      chip.textContent = '#' + t;
+      meta.appendChild(chip);
+    }
+
+    const dateSpan = document.createElement('span');
+    dateSpan.className = 'note-card-date';
+    dateSpan.textContent = relativeDate(n.updated_at);
+    meta.appendChild(dateSpan);
+
+    card.appendChild(preview);
+    card.appendChild(meta);
+
+    card.addEventListener('click', () => {
+      openNote(n.id);
+      if (isMobile) hideMobileList();
+    });
+
+    $notesList.appendChild(card);
+  }
+}
+
+function relativeDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const now = new Date();
+  const diffMs = now - d;
+  const diffDays = Math.floor(diffMs / 86400000);
+  if (diffDays === 0) return 'today';
+  if (diffDays === 1) return 'yesterday';
+  if (diffDays < 7) return `${diffDays} days ago`;
+  return d.toLocaleDateString('en-GB');
+}
+
+// === SECTION: OPEN NOTE ===
+function openNote(id) {
+  if (isNew && pendingContent === null) {
+    // Abandon unsaved empty new note
+    isNew = false;
+    newNoteFilename = null;
+  }
+  const note = notes.find(n => n.id === id);
+  if (!note) return;
+  activeNoteId = id;
+  isNew = false;
+  newNoteFilename = null;
+  localStorage.setItem('hexnotes_lastNote', id);
+
+  $filenameDisplay.textContent = note.filename;
+  $filenameDisplay.style.display = '';
+  $filenameEditBtn.style.display = '';
+  $filenameInput.style.display = 'none';
+  $filenameError.style.display = 'none';
+  $errorBar.style.display = 'none';
+
+  // Update pin button state
+  $filenamePinBtn.title = note.pinned ? 'Unpin' : 'Pin to top';
+  $filenamePinBtn.style.color = note.pinned ? 'var(--accent)' : '';
+
+  $editor.value = note.content;
+  $emptyState.style.display = 'none';
+  $editor.parentElement.style.display = 'flex';
+  $filenameRow.style.display = 'flex';
+  $editor.focus();
+
+  pendingContent = null;
+  clearTimeout(saveTimer);
+  retryCount = 0;
+  clearTimeout(retryTimer);
+  hideSaveIndicator();
+
+  renderNotesList();
+}
+
+function showEmpty() {
+  activeNoteId = null;
+  $emptyState.style.display = 'flex';
+  $editor.parentElement.style.display = 'none';
+  $filenameRow.style.display = 'none';
+  $errorBar.style.display = 'none';
+  $filenameError.style.display = 'none';
+  $editor.value = '';
+}
+
+// === SECTION: NEW NOTE ===
+function createNewNote() {
+  activeNoteId = null;
+  isNew = true;
+  newNoteFilename = null;
+  pendingContent = null;
+
+  $filenameDisplay.textContent = 'new-note.md';
+  $filenameDisplay.style.display = '';
+  $filenameEditBtn.style.display = '';
+  $filenameInput.style.display = 'none';
+  $filenameError.style.display = 'none';
+  $errorBar.style.display = 'none';
+
+  $editor.value = '';
+  $emptyState.style.display = 'none';
+  $editor.parentElement.style.display = 'flex';
+  $filenameRow.style.display = 'flex';
+  $editor.focus();
+
+  renderNotesList();
+
+  if (isMobile) hideMobileList();
+}
+
+// === SECTION: AUTOSAVE ===
+$editor.addEventListener('input', () => {
+  const content = $editor.value;
+  pendingContent = content;
+  clearTimeout(saveTimer);
+
+  if (!isOnline) return;
+
+  saveTimer = setTimeout(() => save(content), 1000);
+});
+
+async function save(content) {
+  if (isSaving) return;
+
+  // Don't autosave empty content — trash only on blur
+  if (!content || !content.trim()) return;
+
+  isSaving = true;
+  showSaving();
+
+  try {
+    let res;
+    if (isNew) {
+      const body = { content };
+      if (newNoteFilename) body.filename = newNoteFilename;
+      res = await apiFetch('/api/notes', { method: 'POST', body });
+    } else if (activeNoteId) {
+      res = await apiFetch(`/api/notes/${encodeURIComponent(activeNoteId)}`, {
+        method: 'PATCH',
+        body: { content },
+      });
+    } else {
+      isSaving = false;
+      return;
+    }
+
+    if (res.ok) {
+      if (isNew) {
+        const created = await res.json();
+        activeNoteId = created.id;
+        isNew = false;
+        newNoteFilename = null;
+        localStorage.setItem('hexnotes_lastNote', created.id);
+        $filenameDisplay.textContent = created.filename;
+      }
+      pendingContent = null;
+      retryCount = 0;
+      clearTimeout(retryTimer);
+      hideErrorBar();
+      showSaved();
+      // Refresh the list
+      const listRes = await apiFetch('/api/notes?limit=200');
+      if (listRes.ok) {
+        notes = await listRes.json();
+        renderNotesList();
+      }
+    } else {
+      showErrorBar('Could not save – server returned an error');
+      scheduleRetry(content);
+    }
+  } catch (err) {
+    if (!navigator.onLine) {
+      goOffline();
+    } else {
+      showErrorBar('Could not save – check your connection');
+      scheduleRetry(content);
+    }
+  } finally {
+    isSaving = false;
+  }
+}
+
+function scheduleRetry(content) {
+  retryCount++;
+  if (retryCount <= 3) {
+    retryTimer = setTimeout(() => {
+      if (pendingContent !== null) {
+        save(pendingContent);
+      } else {
+        save(content);
+      }
+    }, 5000);
+  }
+}
+
+// Auto-trash on blur with empty content
+$editor.addEventListener('blur', () => {
+  if (!activeNoteId || isNew) return;
+  const content = $editor.value;
+  if (!content || !content.trim()) {
+    // Move to trash via PATCH with empty content
+    apiFetch(`/api/notes/${encodeURIComponent(activeNoteId)}`, {
+      method: 'PATCH',
+      body: { content: '' },
+    }).then(res => {
+      if (res.status === 204) {
+        const deletedId = activeNoteId;
+        activeNoteId = null;
+        notes = notes.filter(n => n.id !== deletedId);
+        renderNotesList();
+        if (notes.length > 0) {
+          openNote(notes[0].id);
+        } else {
+          showEmpty();
+        }
+      }
+    }).catch(() => {});
+  }
+});
+
+// === SECTION: SAVE INDICATOR ===
+function showSaving() {
+  $saveIndicator.textContent = '···';
+  $saveIndicator.style.opacity = '1';
+  $saveIndicator.style.animation = 'pulse 1s infinite';
+}
+
+function showSaved() {
+  $saveIndicator.textContent = '✓';
+  $saveIndicator.style.animation = 'none';
+  $saveIndicator.style.opacity = '1';
+  setTimeout(() => { $saveIndicator.style.opacity = '0'; }, 2000);
+}
+
+function hideSaveIndicator() {
+  $saveIndicator.style.opacity = '0';
+  $saveIndicator.style.animation = 'none';
+}
+
+// === SECTION: ERROR BAR ===
+function showErrorBar(msg) {
+  $errorBar.textContent = '⚠ ' + msg;
+  $errorBar.style.display = 'block';
+}
+
+function hideErrorBar() {
+  $errorBar.style.display = 'none';
+}
+
+// === SECTION: RENAME ===
+function startRename() {
+  isRenaming = true;
+  const current = $filenameDisplay.textContent;
+  $filenameInput.value = current.replace(/\.md$/, '');
+  $filenameDisplay.style.display = 'none';
+  $filenameEditBtn.style.display = 'none';
+  $filenameInput.style.display = 'block';
+  $filenameInput.focus();
+  $filenameInput.select();
+}
+
+function cancelRename() {
+  isRenaming = false;
+  $filenameInput.style.display = 'none';
+  $filenameDisplay.style.display = '';
+  $filenameEditBtn.style.display = '';
+  $filenameError.style.display = 'none';
+}
+
+async function doRename() {
+  let newName = $filenameInput.value.trim();
+  if (!newName) { cancelRename(); return; }
+  if (!newName.endsWith('.md')) newName += '.md';
+
+  const currentFilename = $filenameDisplay.textContent;
+  if (newName === currentFilename) { cancelRename(); return; }
+
+  $filenameInput.disabled = true;
+
+  try {
+    const id = isNew ? null : activeNoteId;
+    if (!id) {
+      // For new notes, just set the desired filename
+      newNoteFilename = newName;
+      $filenameDisplay.textContent = newName;
+      cancelRename();
+      return;
+    }
+    const res = await apiFetch(`/api/notes/${encodeURIComponent(id)}/rename`, {
+      method: 'POST',
+      body: { new_filename: newName },
+    });
+    if (res.ok) {
+      const updated = await res.json();
+      activeNoteId = updated.id;
+      localStorage.setItem('hexnotes_lastNote', updated.id);
+      $filenameDisplay.textContent = updated.filename;
+      cancelRename();
+      // Refresh list
+      const listRes = await apiFetch('/api/notes?limit=200');
+      if (listRes.ok) {
+        notes = await listRes.json();
+        renderNotesList();
+      }
+    } else if (res.status === 409) {
+      $filenameError.textContent = 'A note with that name already exists';
+      $filenameError.style.display = 'block';
+    } else {
+      $filenameError.textContent = 'Could not rename';
+      $filenameError.style.display = 'block';
+    }
+  } catch {
+    $filenameError.textContent = 'Network error';
+    $filenameError.style.display = 'block';
+  } finally {
+    $filenameInput.disabled = false;
+  }
+}
+
+$filenameDisplay.addEventListener('click', startRename);
+$filenameEditBtn.addEventListener('click', startRename);
+$filenameDeleteBtn.addEventListener('click', confirmDelete);
+$filenamePinBtn.addEventListener('click', async () => {
+  if (!activeNoteId) return;
+  const res = await apiFetch(`/api/notes/${encodeURIComponent(activeNoteId)}/pin`, { method: 'POST' });
+  if (res && res.ok) {
+    const updated = await res.json();
+    const idx = notes.findIndex(n => n.id === activeNoteId);
+    if (idx !== -1) notes[idx] = updated;
+    $filenamePinBtn.title = updated.pinned ? 'Unpin' : 'Pin to top';
+    $filenamePinBtn.style.color = updated.pinned ? 'var(--accent)' : '';
+    await loadNotes();
+  }
+});
+$filenameInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); doRename(); }
+  if (e.key === 'Escape') cancelRename();
+});
+$filenameInput.addEventListener('blur', () => {
+  // Small delay to allow click events to fire
+  setTimeout(() => { if (isRenaming) cancelRename(); }, 150);
+});
+
+// === SECTION: DELETE ===
+let pendingDeleteId = null;
+
+function confirmDelete() {
+  if (!activeNoteId) return;
+  pendingDeleteId = activeNoteId;
+  $confirmOverlay.classList.add('active');
+}
+
+$btnConfirmYes.addEventListener('click', async () => {
+  $confirmOverlay.classList.remove('active');
+  if (!pendingDeleteId) return;
+  try {
+    await apiFetch(`/api/notes/${encodeURIComponent(pendingDeleteId)}`, { method: 'DELETE' });
+    notes = notes.filter(n => n.id !== pendingDeleteId);
+    if (activeNoteId === pendingDeleteId) {
+      activeNoteId = null;
+      if (notes.length > 0) openNote(notes[0].id);
+      else showEmpty();
+    }
+    renderNotesList();
+  } catch {}
+  pendingDeleteId = null;
+});
+
+$btnConfirmNo.addEventListener('click', () => {
+  $confirmOverlay.classList.remove('active');
+  pendingDeleteId = null;
+});
+
+// === SECTION: SIDEBAR ===
+function applySidebarState() {
+  if (isMobile) return;
+  if (sidebarCollapsed) {
+    $sidebar.classList.add('collapsed');
+  } else {
+    $sidebar.classList.remove('collapsed');
+  }
+}
+
+function toggleSidebar() {
+  sidebarCollapsed = !sidebarCollapsed;
+  localStorage.setItem('hexnotes_sidebar', sidebarCollapsed ? 'collapsed' : 'expanded');
+  applySidebarState();
+}
+
+$btnMenu.addEventListener('click', toggleSidebar);
+
+// === SECTION: MOBILE NAV ===
+function showMobileList() {
+  mobileShowList = true;
+  $sidebar.classList.add('mobile-visible');
+  $editorArea.style.display = 'none';
+  $fab.style.display = 'flex';
+}
+
+function hideMobileList() {
+  mobileShowList = false;
+  $sidebar.classList.remove('mobile-visible');
+  $editorArea.style.display = 'flex';
+}
+
+$btnBack.addEventListener('click', () => {
+  if (mobileShowList) {
+    hideMobileList();
+  } else {
+    showMobileList();
+  }
+});
+
+// === SECTION: SEARCH ===
+let searchTimer = null;
+$searchInput.addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => loadNotes(), 300);
+});
+
+// === SECTION: TAB HANDLING ===
+$editor.addEventListener('keydown', e => {
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    const start = $editor.selectionStart;
+    const end = $editor.selectionEnd;
+    $editor.value = $editor.value.substring(0, start) + '  ' + $editor.value.substring(end);
+    $editor.selectionStart = $editor.selectionEnd = start + 2;
+    $editor.dispatchEvent(new Event('input'));
+  }
+});
+
+// === SECTION: KEYBOARD SHORTCUTS ===
+document.addEventListener('keydown', e => {
+  // Ctrl+N → new note
+  if (e.ctrlKey && e.key === 'n') { e.preventDefault(); createNewNote(); }
+  // Ctrl+F → focus search
+  if (e.ctrlKey && e.key === 'f') { e.preventDefault(); $searchInput.focus(); $searchInput.select(); }
+  // Ctrl+B → toggle sidebar
+  if (e.ctrlKey && e.key === 'b') { e.preventDefault(); toggleSidebar(); }
+  // Ctrl+Delete → delete note
+  if (e.ctrlKey && e.key === 'Delete') { e.preventDefault(); confirmDelete(); }
+  // Escape → clear search
+  if (e.key === 'Escape') {
+    if (document.activeElement === $searchInput) {
+      $searchInput.value = '';
+      $searchInput.blur();
+      loadNotes();
+    }
+  }
+});
+
+// === SECTION: NEW NOTE BUTTONS ===
+$btnNew.addEventListener('click', createNewNote);
+$fab.addEventListener('click', createNewNote);
+
+// === SECTION: OFFLINE HANDLING ===
+function goOffline() {
+  isOnline = false;
+  $offlineBar.style.display = 'flex';
+  clearTimeout(saveTimer);
+  if (isMobile) {
+    $fab.style.bottom = '58px';
+  }
+  if (!healthInterval) {
+    healthInterval = setInterval(checkHealth, 30000);
+  }
+}
+
+function goOnline() {
+  isOnline = true;
+  clearInterval(healthInterval);
+  healthInterval = null;
+  $offlineBar.style.display = 'none';
+  if (isMobile) {
+    $fab.style.bottom = '24px';
+  }
+  if (pendingContent !== null) {
+    save(pendingContent);
+  }
+}
+
+async function checkHealth() {
+  try {
+    const r = await fetch('/health', { signal: AbortSignal.timeout(3000) });
+    if (r.ok) goOnline();
+  } catch {
+    // still offline
+  }
+}
+
+window.addEventListener('offline', () => goOffline());
+window.addEventListener('online', () => checkHealth());
+
+// Refresh notes when app comes back to foreground (iOS PWA / tab switch)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && isOnline) {
+    loadNotes();
+  }
+});
+
+// Refresh when browser window regains focus (desktop alt-tab)
+window.addEventListener('focus', () => {
+  if (isOnline) loadNotes();
+});
+
+// Background poll every 60s for always-open desktop windows (only when not typing)
+setInterval(() => {
+  if (isOnline && !isSaving && pendingContent === null) loadNotes();
+}, 60000);
+
+// Manual sync button (mobile)
+$btnSync.addEventListener('click', async () => {
+  $btnSync.classList.add('syncing');
+  await loadNotes();
+  setTimeout(() => $btnSync.classList.remove('syncing'), 600);
+});
+
+// === SECTION: RESIZE HANDLING ===
+window.addEventListener('resize', () => {
+  const wasMobile = isMobile;
+  isMobile = window.innerWidth <= 768;
+  if (wasMobile !== isMobile) {
+    if (isMobile) {
+      $sidebar.classList.remove('collapsed');
+      $fab.style.display = 'flex';
+    } else {
+      $sidebar.classList.remove('mobile-visible');
+      $editorArea.style.display = 'flex';
+      $fab.style.display = 'none';
+      applySidebarState();
+    }
+  }
+});
+
+// === SECTION: PWA REGISTRATION ===
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
+
+// === SECTION: INIT ===
+(async function init() {
+  if (apiToken) {
+    showApp();
+  } else {
+    showAuth();
+  }
+})();
+
+// Pulse animation for save indicator
+const style = document.createElement('style');
+style.textContent = `@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }`;
+document.head.appendChild(style);
+</script>
+</body>
+</html>

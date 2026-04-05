@@ -1,0 +1,26 @@
+services:
+  hexnotes:
+    build: .
+    container_name: hexnotes
+    restart: unless-stopped
+    environment:
+      - ADMIN_SECRET=${ADMIN_SECRET}
+    volumes:
+      - ./notes:/app/notes
+      - ./tokens.json:/app/tokens.json
+    ports:
+      - "8100:8000"
+    networks:
+      - default
+      - npm_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+networks:
+  npm_network:
+    external: true
+    name: nginx_proxy_manager_default

@@ -9,18 +9,17 @@ services:
       - ./notes:/app/notes
       - ./tokens.json:/app/tokens.json
     ports:
-      - "8100:8000"
-    networks:
-      - default
-      - npm_network
+      - "8888:8000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
+    networks:
+      - default
+      - nginx_proxy_manager_default
 
 networks:
-  npm_network:
+  nginx_proxy_manager_default:
     external: true
-    name: nginx_proxy_manager_default

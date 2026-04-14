@@ -233,6 +233,74 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
   margin-left: auto;
 }
 
+/* Tag filter chips strip */
+#tag-filters {
+  padding: 8px 8px 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-sidebar);
+}
+#tag-filters:empty { display: none; }
+.tag-filter-chip {
+  background: var(--bg-card);
+  color: var(--text-muted);
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+  font-family: var(--font);
+}
+.tag-filter-chip:hover { color: var(--text-primary); }
+.tag-filter-chip.active {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* Group headers */
+.group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  user-select: none;
+}
+.group-header:hover { color: var(--text-primary); }
+.group-toggle {
+  font-size: 9px;
+  display: inline-block;
+  transition: transform 0.15s;
+}
+.group-header.collapsed .group-toggle { transform: rotate(-90deg); }
+.group-count {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--bg-card);
+  padding: 1px 6px;
+  border-radius: 9999px;
+}
+.group-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 0 4px;
+}
+.group-body.collapsed { display: none; }
+
 /* Editor area */
 #editor-area {
   flex: 1;
@@ -531,6 +599,7 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
   <div id="main">
     <!-- Sidebar -->
     <div id="sidebar">
+      <div id="tag-filters"></div>
       <div id="notes-list"></div>
     </div>
 
@@ -593,6 +662,8 @@ let isMobile = window.innerWidth <= 768;
 let mobileShowList = false;
 let isRenaming = false;
 let isPreviewMode = false;
+let activeTagFilter = null;
+let collapsedGroups = JSON.parse(localStorage.getItem('hexnotes_collapsed_groups') || '{}');
 
 // === SECTION: DOM REFS ===
 const $authScreen = document.getElementById('auth-screen');
@@ -627,6 +698,7 @@ const $btnConfirmYes = document.getElementById('btn-confirm-yes');
 const $btnConfirmNo = document.getElementById('btn-confirm-no');
 const $preview = document.getElementById('preview');
 const $btnPreview = document.getElementById('filename-preview-btn');
+const $tagFilters = document.getElementById('tag-filters');
 
 // === SECTION: API ===
 async function apiFetch(path, options = {}) {
@@ -689,6 +761,7 @@ async function loadNotes() {
     const res = await apiFetch(url);
     if (!res.ok) throw new Error();
     notes = await res.json();
+    renderTagFilters();
     renderNotesList();
     // Restore active note
     if (!activeNoteId && !isNew) {
@@ -713,42 +786,146 @@ async function loadNotes() {
   }
 }
 
+// === SECTION: TAG FILTERS ===
+function renderTagFilters() {
+  const allTags = [...new Set(notes.flatMap(n => n.tags))].sort();
+  $tagFilters.innerHTML = '';
+
+  // Auto-clear filter if the selected tag no longer exists in the current note set
+  if (activeTagFilter !== null && !allTags.includes(activeTagFilter)) {
+    activeTagFilter = null;
+  }
+
+  if (allTags.length === 0) return;
+
+  const allChip = document.createElement('button');
+  allChip.className = 'tag-filter-chip' + (activeTagFilter === null ? ' active' : '');
+  allChip.textContent = 'All';
+  allChip.addEventListener('click', () => {
+    activeTagFilter = null;
+    renderTagFilters();
+    renderNotesList();
+  });
+  $tagFilters.appendChild(allChip);
+
+  for (const tag of allTags) {
+    const chip = document.createElement('button');
+    chip.className = 'tag-filter-chip' + (activeTagFilter === tag ? ' active' : '');
+    chip.textContent = '#' + tag;
+    chip.addEventListener('click', () => {
+      activeTagFilter = (activeTagFilter === tag) ? null : tag;
+      renderTagFilters();
+      renderNotesList();
+    });
+    $tagFilters.appendChild(chip);
+  }
+}
+
+function makeNoteCard(n) {
+  const card = document.createElement('div');
+  card.className = 'note-card' + (n.id === activeNoteId ? ' active' : '') + (n.pinned ? ' pinned' : '');
+  card.dataset.id = n.id;
+
+  const preview = document.createElement('div');
+  preview.className = 'note-card-preview';
+  preview.textContent = n.filename;
+
+  const meta = document.createElement('div');
+  meta.className = 'note-card-meta';
+
+  for (const t of n.tags.slice(0, 4)) {
+    const chip = document.createElement('span');
+    chip.className = 'tag-chip';
+    chip.textContent = '#' + t;
+    meta.appendChild(chip);
+  }
+
+  const dateSpan = document.createElement('span');
+  dateSpan.className = 'note-card-date';
+  dateSpan.textContent = relativeDate(n.updated_at);
+  meta.appendChild(dateSpan);
+
+  card.appendChild(preview);
+  card.appendChild(meta);
+
+  card.addEventListener('click', () => {
+    openNote(n.id);
+    if (isMobile) hideMobileList();
+  });
+
+  return card;
+}
+
+function renderNoteGroup(key, label, groupNotes) {
+  if (groupNotes.length === 0) return;
+
+  const isCollapsed = !!collapsedGroups[key];
+
+  const header = document.createElement('div');
+  header.className = 'group-header' + (isCollapsed ? ' collapsed' : '');
+
+  const toggle = document.createElement('span');
+  toggle.className = 'group-toggle';
+  toggle.textContent = '▾';
+  header.appendChild(toggle);
+
+  const labelSpan = document.createElement('span');
+  labelSpan.textContent = label;
+  header.appendChild(labelSpan);
+
+  const countBadge = document.createElement('span');
+  countBadge.className = 'group-count';
+  countBadge.textContent = groupNotes.length;
+  header.appendChild(countBadge);
+
+  const body = document.createElement('div');
+  body.className = 'group-body' + (isCollapsed ? ' collapsed' : '');
+
+  header.addEventListener('click', () => {
+    collapsedGroups[key] = !collapsedGroups[key];
+    localStorage.setItem('hexnotes_collapsed_groups', JSON.stringify(collapsedGroups));
+    header.classList.toggle('collapsed');
+    body.classList.toggle('collapsed');
+  });
+
+  for (const n of groupNotes) {
+    body.appendChild(makeNoteCard(n));
+  }
+
+  $notesList.appendChild(header);
+  $notesList.appendChild(body);
+}
+
+// === SECTION: NOTES LIST ===
 function renderNotesList() {
   $notesList.innerHTML = '';
-  for (const n of notes) {
-    const card = document.createElement('div');
-    card.className = 'note-card' + (n.id === activeNoteId ? ' active' : '') + (n.pinned ? ' pinned' : '');
-    card.dataset.id = n.id;
 
-    const preview = document.createElement('div');
-    preview.className = 'note-card-preview';
-    preview.textContent = n.filename;
+  // Apply tag filter on top of the notes array (already search-filtered by the API)
+  const filtered = activeTagFilter
+    ? notes.filter(n => n.tags.includes(activeTagFilter))
+    : notes;
 
-    const meta = document.createElement('div');
-    meta.className = 'note-card-meta';
-
-    for (const t of n.tags.slice(0, 4)) {
-      const chip = document.createElement('span');
-      chip.className = 'tag-chip';
-      chip.textContent = '#' + t;
-      meta.appendChild(chip);
-    }
-
-    const dateSpan = document.createElement('span');
-    dateSpan.className = 'note-card-date';
-    dateSpan.textContent = relativeDate(n.updated_at);
-    meta.appendChild(dateSpan);
-
-    card.appendChild(preview);
-    card.appendChild(meta);
-
-    card.addEventListener('click', () => {
-      openNote(n.id);
-      if (isMobile) hideMobileList();
-    });
-
-    $notesList.appendChild(card);
+  if (filtered.length === 0) {
+    const empty = document.createElement('div');
+    empty.style.cssText = 'padding:16px 12px; font-size:12px; color:var(--text-muted);';
+    empty.textContent = activeTagFilter ? `No notes tagged #${activeTagFilter}` : 'No notes';
+    $notesList.appendChild(empty);
+    return;
   }
+
+  // Group: Pinned / Recent (≤7 days) / Older
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const sevenDaysAgo = new Date(startOfToday.getTime() - 7 * 86400000);
+
+  const pinned   = filtered.filter(n => n.pinned);
+  const unpinned = filtered.filter(n => !n.pinned);
+  const recent   = unpinned.filter(n => new Date(n.updated_at) >= sevenDaysAgo);
+  const older    = unpinned.filter(n => new Date(n.updated_at) < sevenDaysAgo);
+
+  renderNoteGroup('pinned', '📌 Pinned', pinned);
+  renderNoteGroup('recent', 'Recent', recent);
+  renderNoteGroup('older', 'Older', older);
 }
 
 function relativeDate(iso) {
@@ -894,6 +1071,7 @@ async function save(content) {
       const listRes = await apiFetch('/api/notes?limit=200');
       if (listRes.ok) {
         notes = await listRes.json();
+        renderTagFilters();
         renderNotesList();
       }
     } else {
@@ -1058,6 +1236,7 @@ async function doRename() {
       const listRes = await apiFetch('/api/notes?limit=200');
       if (listRes.ok) {
         notes = await listRes.json();
+        renderTagFilters();
         renderNotesList();
       }
     } else if (res.status === 409) {

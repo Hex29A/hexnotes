@@ -3,6 +3,8 @@ services:
     build: .
     container_name: hexnotes
     restart: unless-stopped
+    labels:
+      - "diun.enable=true"
     environment:
       - ADMIN_SECRET=${ADMIN_SECRET}
     volumes:

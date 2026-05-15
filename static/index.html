@@ -662,7 +662,6 @@ let isMobile = window.innerWidth <= 768;
 let mobileShowList = false;
 let isRenaming = false;
 let isPreviewMode = false;
-let activeTagFilter = null;
 let collapsedGroups = JSON.parse(localStorage.getItem('hexnotes_collapsed_groups') || '{}');
 
 // === SECTION: DOM REFS ===
@@ -761,7 +760,6 @@ async function loadNotes() {
     const res = await apiFetch(url);
     if (!res.ok) throw new Error();
     notes = await res.json();
-    renderTagFilters();
     renderNotesList();
     // Restore active note
     if (!activeNoteId && !isNew) {
@@ -783,41 +781,6 @@ async function loadNotes() {
     }
   } catch {
     // Probably offline or auth error
-  }
-}
-
-// === SECTION: TAG FILTERS ===
-function renderTagFilters() {
-  const allTags = [...new Set(notes.flatMap(n => n.tags))].sort();
-  $tagFilters.innerHTML = '';
-
-  // Auto-clear filter if the selected tag no longer exists in the current note set
-  if (activeTagFilter !== null && !allTags.includes(activeTagFilter)) {
-    activeTagFilter = null;
-  }
-
-  if (allTags.length === 0) return;
-
-  const allChip = document.createElement('button');
-  allChip.className = 'tag-filter-chip' + (activeTagFilter === null ? ' active' : '');
-  allChip.textContent = 'All';
-  allChip.addEventListener('click', () => {
-    activeTagFilter = null;
-    renderTagFilters();
-    renderNotesList();
-  });
-  $tagFilters.appendChild(allChip);
-
-  for (const tag of allTags) {
-    const chip = document.createElement('button');
-    chip.className = 'tag-filter-chip' + (activeTagFilter === tag ? ' active' : '');
-    chip.textContent = '#' + tag;
-    chip.addEventListener('click', () => {
-      activeTagFilter = (activeTagFilter === tag) ? null : tag;
-      renderTagFilters();
-      renderNotesList();
-    });
-    $tagFilters.appendChild(chip);
   }
 }
 
@@ -900,32 +863,29 @@ function renderNoteGroup(key, label, groupNotes) {
 function renderNotesList() {
   $notesList.innerHTML = '';
 
-  // Apply tag filter on top of the notes array (already search-filtered by the API)
-  const filtered = activeTagFilter
-    ? notes.filter(n => n.tags.includes(activeTagFilter))
-    : notes;
-
-  if (filtered.length === 0) {
+  if (notes.length === 0) {
     const empty = document.createElement('div');
     empty.style.cssText = 'padding:16px 12px; font-size:12px; color:var(--text-muted);';
-    empty.textContent = activeTagFilter ? `No notes tagged #${activeTagFilter}` : 'No notes';
+    empty.textContent = 'No notes';
     $notesList.appendChild(empty);
     return;
   }
 
-  // Group: Pinned / Recent (≤7 days) / Older
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
-  const sevenDaysAgo = new Date(startOfToday.getTime() - 7 * 86400000);
-
-  const pinned   = filtered.filter(n => n.pinned);
-  const unpinned = filtered.filter(n => !n.pinned);
-  const recent   = unpinned.filter(n => new Date(n.updated_at) >= sevenDaysAgo);
-  const older    = unpinned.filter(n => new Date(n.updated_at) < sevenDaysAgo);
-
+  // Pinned group first (all pinned notes, regardless of tags)
+  const pinned = notes.filter(n => n.pinned);
   renderNoteGroup('pinned', '📌 Pinned', pinned);
-  renderNoteGroup('recent', 'Recent', recent);
-  renderNoteGroup('older', 'Older', older);
+
+  // Tag-based groups: one collapsible group per unique tag (unpinned notes only)
+  const unpinned = notes.filter(n => !n.pinned);
+  const allTags = [...new Set(unpinned.flatMap(n => n.tags))].sort();
+  for (const tag of allTags) {
+    const tagNotes = unpinned.filter(n => n.tags.includes(tag));
+    renderNoteGroup('tag_' + tag, '#' + tag, tagNotes);
+  }
+
+  // Inbox: unpinned notes with no tags
+  const inbox = unpinned.filter(n => n.tags.length === 0);
+  renderNoteGroup('inbox', '📥 Inbox', inbox);
 }
 
 function relativeDate(iso) {

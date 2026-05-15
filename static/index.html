@@ -1102,6 +1102,17 @@ function renderNotesList() {
     return;
   }
 
+  // When search is active: flat list, no grouping, all results visible
+  const q = $searchInput.value.trim();
+  if (q) {
+    const header = document.createElement('div');
+    header.style.cssText = 'padding:8px 12px 4px; font-size:11px; color:var(--text-muted); display:flex; justify-content:space-between;';
+    header.innerHTML = `<span>Results</span><span style="background:var(--bg-card);padding:1px 6px;border-radius:9999px;">${notes.length}</span>`;
+    $notesList.appendChild(header);
+    for (const n of notes) $notesList.appendChild(makeNoteCard(n));
+    return;
+  }
+
   // Pinned group first (all pinned notes, regardless of tags)
   const pinned = notes.filter(n => n.pinned);
   renderNoteGroup('pinned', '📌 Pinned', pinned);
@@ -1757,7 +1768,7 @@ function closeFindBar() {
   $findCounter.textContent = '─';
 }
 
-function runFind(q) {
+function runFind(q, keepFocus = false) {
   findMatches = [];
   findIndex = 0;
   if (!q) { $findCounter.textContent = '─'; return; }
@@ -1771,22 +1782,24 @@ function runFind(q) {
     pos = idx + 1;
   }
   $findCounter.textContent = findMatches.length ? `1 / ${findMatches.length}` : '0 / 0';
-  if (findMatches.length) goToFindMatch(0);
+  if (findMatches.length) goToFindMatch(0, keepFocus);
 }
 
-function goToFindMatch(idx) {
+function goToFindMatch(idx, keepFocus = false) {
   if (!findMatches.length) return;
   findIndex = (idx + findMatches.length) % findMatches.length;
   const pos = findMatches[findIndex];
   const len = $findInput.value.length;
-  $editor.focus();
   $editor.setSelectionRange(pos, pos + len);
   const lines = $editor.value.substring(0, pos).split('\n').length;
   $editor.scrollTop = Math.max(0, (lines - 4) * 22);
   $findCounter.textContent = `${findIndex + 1} / ${findMatches.length}`;
+  if (!keepFocus) $editor.focus();
 }
 
-$findInput.addEventListener('input', () => runFind($findInput.value));
+$findInput.addEventListener('input', () => {
+  runFind($findInput.value, true); // true = keepFocus
+});
 $findInput.addEventListener('keydown', e => {
   if (e.key === 'Enter') {
     e.preventDefault();

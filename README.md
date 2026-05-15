@@ -102,7 +102,8 @@ List all notes, sorted by last updated (descending).
     "updated_at": "2026-04-04T10:15:15",
     "preview": "My note content #tag",
     "is_timeless": false,
-    "pinned": false
+    "pinned": false,
+    "snippet": null
   }
 ]
 ```
@@ -111,6 +112,7 @@ List all notes, sorted by last updated (descending).
 - `is_timeless` — `true` if the filename has no `YYYY-MM-DD` prefix
 - `pinned` — `true` if the note is pinned to the top of the list
 - `content` — raw text, **never includes YAML frontmatter**
+- `snippet` — `null` normally. When `?q=` is provided, contains a ~90-char excerpt from the first matching line in the note body, with `…` ellipsis if truncated. Useful for AI agents to surface relevant context without reading full content.
 
 ---
 
@@ -344,7 +346,7 @@ To organize notes into a tag group, add `#tagname` anywhere in the note body. No
 
 ## Search
 
-- **Topbar search** — live-filters the note list (300ms debounce). Clears with the `✕` button. Matched text is highlighted in the sidebar.
+- **Topbar search** — live-filters the note list (300ms debounce). Clears with the `✕` button. When active, shows a flat results list (no grouping) with matching text highlighted in the filename and a content snippet showing the matching line. Matched text is highlighted in accent color.
 - **Command palette** (`Ctrl+P`) — floating overlay, fuzzy-searches filename + tags + content, opens note on Enter. Arrow keys navigate results.
 - **In-note find** (`Ctrl+F`) — find bar below filename row. Navigate matches with Enter / Shift+Enter or ↑↓ buttons. Shows `X / Y` match counter.
 

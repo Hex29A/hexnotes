@@ -713,6 +713,15 @@ mark {
   border-radius: 2px;
   font-style: normal;
 }
+.note-card-snippet {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 3px;
+  font-style: italic;
+}
 
 /* === SECTION: MOBILE === */
 @media (max-width: 768px) {
@@ -1016,6 +1025,28 @@ function makeNoteCard(n) {
   meta.appendChild(dateSpan);
 
   card.appendChild(preview);
+
+  // Snippet: show matching line excerpt when search is active
+  if (n.snippet) {
+    const snippetEl = document.createElement('div');
+    snippetEl.className = 'note-card-snippet';
+    const q = $searchInput.value.trim().toLowerCase();
+    if (q) {
+      const sl = n.snippet.toLowerCase();
+      const idx = sl.indexOf(q);
+      if (idx >= 0) {
+        snippetEl.innerHTML = escapeHtml(n.snippet.slice(0, idx)) +
+          '<mark>' + escapeHtml(n.snippet.slice(idx, idx + q.length)) + '</mark>' +
+          escapeHtml(n.snippet.slice(idx + q.length));
+      } else {
+        snippetEl.textContent = n.snippet;
+      }
+    } else {
+      snippetEl.textContent = n.snippet;
+    }
+    card.appendChild(snippetEl);
+  }
+
   card.appendChild(meta);
 
   card.addEventListener('click', () => {

@@ -41,6 +41,7 @@ class NoteOut(BaseModel):
     preview: str
     is_timeless: bool
     pinned: bool
+    snippet: Optional[str] = None
 
 class NoteCreate(BaseModel):
     content: str = ""
@@ -365,7 +366,28 @@ async def list_notes(
     pinned_notes = sorted([n for n in results if n["pinned"]], key=lambda n: n["updated_at"], reverse=True)
     unpinned_notes = sorted([n for n in results if not n["pinned"]], key=lambda n: n["updated_at"], reverse=True)
     results = pinned_notes + unpinned_notes
-    return results[offset : offset + limit]
+    paged = results[offset : offset + limit]
+
+    if q:
+        q_lower = q.lower()
+        out = []
+        for n in paged:
+            snippet = None
+            for line in n["content"].splitlines():
+                if q_lower in line.lower():
+                    idx = line.lower().index(q_lower)
+                    start = max(0, idx - 30)
+                    chunk = line[start:start + 90].strip()
+                    if start > 0:
+                        chunk = "…" + chunk
+                    if start + 90 < len(line):
+                        chunk = chunk + "…"
+                    snippet = chunk
+                    break
+            out.append({**n, "snippet": snippet})
+        return out
+
+    return paged
 
 
 @app.post("/api/notes", response_model=NoteOut)

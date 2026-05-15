@@ -213,6 +213,7 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
   text-overflow: ellipsis;
   margin-bottom: 4px;
   padding-right: 24px;
+  color: var(--text-muted);
 }
 .note-card-meta {
   display: flex;
@@ -265,6 +266,27 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
   border-color: var(--accent);
 }
 
+/* Collapse-all bar */
+#collapse-all-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 6px 10px 2px;
+  flex-shrink: 0;
+}
+#btn-collapse-all {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: var(--font);
+  letter-spacing: 0.03em;
+}
+#btn-collapse-all:hover { color: var(--text-primary); }
+
 /* Group headers */
 .group-header {
   display: flex;
@@ -272,13 +294,14 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
   gap: 6px;
   padding: 10px 12px 4px;
   font-size: 11px;
-  color: var(--text-muted);
+  color: var(--text-primary);
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   cursor: pointer;
   user-select: none;
 }
-.group-header:hover { color: var(--text-primary); }
+.group-header:hover { color: var(--accent); }
 .group-toggle {
   font-size: 9px;
   display: inline-block;
@@ -600,6 +623,7 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
     <!-- Sidebar -->
     <div id="sidebar">
       <div id="tag-filters"></div>
+      <div id="collapse-all-bar"><button id="btn-collapse-all">▾ collapse all</button></div>
       <div id="notes-list"></div>
     </div>
 
@@ -822,6 +846,7 @@ function makeNoteCard(n) {
 function renderNoteGroup(key, label, groupNotes) {
   if (groupNotes.length === 0) return;
 
+  if (!(key in collapsedGroups)) collapsedGroups[key] = false;
   const isCollapsed = !!collapsedGroups[key];
 
   const header = document.createElement('div');
@@ -859,6 +884,29 @@ function renderNoteGroup(key, label, groupNotes) {
   $notesList.appendChild(body);
 }
 
+// === SECTION: COLLAPSE ALL ===
+const $btnCollapseAll = document.getElementById('btn-collapse-all');
+let allCollapsed = false;
+
+$btnCollapseAll.addEventListener('click', () => {
+  allCollapsed = !allCollapsed;
+  $btnCollapseAll.textContent = allCollapsed ? '▸ expand all' : '▾ collapse all';
+  // Apply to all current group keys in collapsedGroups and in the DOM
+  document.querySelectorAll('.group-header').forEach(h => {
+    if (allCollapsed) h.classList.add('collapsed');
+    else h.classList.remove('collapsed');
+  });
+  document.querySelectorAll('.group-body').forEach(b => {
+    if (allCollapsed) b.classList.add('collapsed');
+    else b.classList.remove('collapsed');
+  });
+  // Sync to collapsedGroups state
+  for (const key of Object.keys(collapsedGroups)) {
+    collapsedGroups[key] = allCollapsed;
+  }
+  localStorage.setItem('hexnotes_collapsed_groups', JSON.stringify(collapsedGroups));
+});
+
 // === SECTION: NOTES LIST ===
 function renderNotesList() {
   $notesList.innerHTML = '';
@@ -875,17 +923,18 @@ function renderNotesList() {
   const pinned = notes.filter(n => n.pinned);
   renderNoteGroup('pinned', '📌 Pinned', pinned);
 
-  // Tag-based groups: one collapsible group per unique tag (unpinned notes only)
   const unpinned = notes.filter(n => !n.pinned);
+
+  // Inbox second: unpinned notes with no tags
+  const inbox = unpinned.filter(n => n.tags.length === 0);
+  renderNoteGroup('inbox', '📥 Inbox', inbox);
+
+  // Tag-based groups: one collapsible group per unique tag (unpinned notes only)
   const allTags = [...new Set(unpinned.flatMap(n => n.tags))].sort();
   for (const tag of allTags) {
     const tagNotes = unpinned.filter(n => n.tags.includes(tag));
     renderNoteGroup('tag_' + tag, '#' + tag, tagNotes);
   }
-
-  // Inbox: unpinned notes with no tags
-  const inbox = unpinned.filter(n => n.tags.length === 0);
-  renderNoteGroup('inbox', '📥 Inbox', inbox);
 }
 
 function relativeDate(iso) {

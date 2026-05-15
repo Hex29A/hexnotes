@@ -313,13 +313,50 @@ The frontend keeps notes up to date via multiple mechanisms:
 
 ---
 
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+N` | New note |
+| `Ctrl+P` | Command palette — fuzzy-search and open any note |
+| `Ctrl+F` | Find in current note (match navigation with ↑↓, Shift+Enter/Enter) |
+| `Ctrl+B` | Toggle sidebar |
+| `Ctrl+M` | Toggle Markdown preview |
+| `Ctrl+Delete` | Delete active note (confirmation dialog) |
+| `Escape` | Close palette / find bar / clear search |
+| `Tab` | Insert 2 spaces in editor |
+
+---
+
+## Sidebar
+
+Notes are organized into collapsible groups:
+
+- **📌 Pinned** — notes pinned via the 📌 button in the filename bar
+- **📥 Inbox** — untagged notes (no `#tags` in content)
+- **🏷 Tags** — parent group containing one sub-group per `#tag`
+
+Group collapse state is saved per-group in `localStorage`. A **collapse all / expand all** toggle is available at the top of the list.
+
+To organize notes into a tag group, add `#tagname` anywhere in the note body. Notes with multiple tags appear in each relevant group.
+
+---
+
+## Search
+
+- **Topbar search** — live-filters the note list (300ms debounce). Clears with the `✕` button. Matched text is highlighted in the sidebar.
+- **Command palette** (`Ctrl+P`) — floating overlay, fuzzy-searches filename + tags + content, opens note on Enter. Arrow keys navigate results.
+- **In-note find** (`Ctrl+F`) — find bar below filename row. Navigate matches with Enter / Shift+Enter or ↑↓ buttons. Shows `X / Y` match counter.
+
+---
+
 ## Running Tests
 
 ```bash
 docker compose run --rm hexnotes pytest tests/ -v --tb=short
 ```
 
-58 tests covering auth, CRUD, search, rename, trash, token management, slug generation, frontmatter parsing, and filename sanitization.
+58 tests covering auth, CRUD, search, rename, trash, token management, slug generation, frontmatter parsing, and filename sanitization. Frontend features (sidebar, palette, find bar) are pure client-side and do not require additional backend tests.
 
 ---
 

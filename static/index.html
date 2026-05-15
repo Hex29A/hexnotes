@@ -397,6 +397,33 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
   color: var(--error-text);
   font-size: 12px;
   flex-shrink: 0;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+#error-bar-msg { flex: 1; }
+#error-bar-retry {
+  background: none;
+  border: 1px solid var(--error-text);
+  color: var(--error-text);
+  font-size: 11px;
+  padding: 2px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: var(--font);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+#error-bar-dismiss {
+  font-size: 14px;
+  background: none;
+  border: none;
+  color: var(--error-text);
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  flex-shrink: 0;
 }
 
 /* Editor */
@@ -639,7 +666,11 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
         <button id="filename-delete-btn" title="Delete note">🗑</button>
       </div>
       <div id="filename-error"></div>
-      <div id="error-bar"></div>
+      <div id="error-bar">
+        <span id="error-bar-msg"></span>
+        <button id="error-bar-retry">Retry</button>
+        <button id="error-bar-dismiss">✕</button>
+      </div>
       <div id="editor-wrap">
         <textarea id="editor" spellcheck="false"></textarea>
         <div id="preview"></div>
@@ -1080,7 +1111,6 @@ async function save(content) {
       const listRes = await apiFetch('/api/notes?limit=200');
       if (listRes.ok) {
         notes = await listRes.json();
-        renderTagFilters();
         renderNotesList();
       }
     } else {
@@ -1157,9 +1187,28 @@ function hideSaveIndicator() {
 }
 
 // === SECTION: ERROR BAR ===
+const $errorBarMsg = document.getElementById('error-bar-msg');
+const $errorBarRetry = document.getElementById('error-bar-retry');
+const $errorBarDismiss = document.getElementById('error-bar-dismiss');
+
+$errorBarDismiss.addEventListener('click', (e) => {
+  e.stopPropagation();
+  hideErrorBar();
+  retryCount = 3; // stop further auto-retries
+  clearTimeout(retryTimer);
+});
+
+$errorBarRetry.addEventListener('click', (e) => {
+  e.stopPropagation();
+  retryCount = 0;
+  clearTimeout(retryTimer);
+  if (pendingContent !== null) save(pendingContent);
+  else if (activeNoteId) save($editor.value);
+});
+
 function showErrorBar(msg) {
-  $errorBar.textContent = '⚠ ' + msg;
-  $errorBar.style.display = 'block';
+  $errorBarMsg.textContent = '⚠ ' + msg;
+  $errorBar.style.display = 'flex';
 }
 
 function hideErrorBar() {
@@ -1245,7 +1294,6 @@ async function doRename() {
       const listRes = await apiFetch('/api/notes?limit=200');
       if (listRes.ok) {
         notes = await listRes.json();
-        renderTagFilters();
         renderNotesList();
       }
     } else if (res.status === 409) {

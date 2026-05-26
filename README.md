@@ -32,7 +32,7 @@ with urllib.request.urlopen(req) as r:
 "
 
 # 5. Open the app
-# http://localhost:8100
+# http://localhost:8888
 # Paste the token when prompted
 ```
 
@@ -47,8 +47,8 @@ with urllib.request.urlopen(req) as r:
 | Backend   | Python 3.12 + FastAPI |
 | Frontend  | Single-file Vanilla HTML/JS/CSS |
 | Storage   | `.md` files in `notes/` (Docker bind mount) |
-| Port      | `8100` on host → `8000` inside container |
-| Networks  | `hexnote_default` + `nginx_proxy_manager_default` |
+| Port      | `8888` on host → `8000` inside container |
+| Networks  | `hexnotes_default` + `nginx_proxy_manager_default` |
 
 **File layout:**
 ```
@@ -74,7 +74,7 @@ Tokens are stored in `tokens.json` (persisted via Docker volume). Each token has
 
 ## REST API Reference
 
-Base URL: `http://<host>:8100`
+Base URL: `http://<host>:8888`
 
 ### Notes
 

@@ -1282,11 +1282,13 @@ function createNewNote() {
   $emptyState.style.display = 'none';
   $editor.parentElement.style.display = 'flex';
   $filenameRow.style.display = 'flex';
-  $editor.focus();
 
   renderNotesList();
 
   if (isMobile) hideMobileList();
+
+  // Let the user name the note right away — focus lands in the filename field
+  startRename();
 }
 
 // === SECTION: AUTOSAVE ===
@@ -1495,11 +1497,11 @@ function cancelRename() {
 
 async function doRename() {
   let newName = $filenameInput.value.trim();
-  if (!newName) { cancelRename(); return; }
+  if (!newName) { cancelRename(); if (isNew) $editor.focus(); return; }
   if (!newName.endsWith('.md')) newName += '.md';
 
   const currentFilename = $filenameDisplay.textContent;
-  if (newName === currentFilename) { cancelRename(); return; }
+  if (newName === currentFilename) { cancelRename(); if (isNew) $editor.focus(); return; }
 
   $filenameInput.disabled = true;
 
@@ -1510,6 +1512,7 @@ async function doRename() {
       newNoteFilename = newName;
       $filenameDisplay.textContent = newName;
       cancelRename();
+      $editor.focus();
       return;
     }
     const res = await apiFetch(`/api/notes/${encodeURIComponent(id)}/rename`, {
@@ -1560,7 +1563,7 @@ $filenamePinBtn.addEventListener('click', async () => {
 });
 $filenameInput.addEventListener('keydown', e => {
   if (e.key === 'Enter') { e.preventDefault(); doRename(); }
-  if (e.key === 'Escape') cancelRename();
+  if (e.key === 'Escape') { cancelRename(); if (isNew) $editor.focus(); }
 });
 $filenameInput.addEventListener('blur', () => {
   // Small delay to allow click events to fire

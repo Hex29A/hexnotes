@@ -135,3 +135,30 @@ def test_trash_sorted_newest_first(client, auth):
     client.delete("/api/notes/b", headers=auth)
     entries = client.get("/api/trash", headers=auth).json()
     assert [e["original_filename"] for e in entries] == ["b.md", "a.md"]
+
+
+def test_empty_trash_requires_auth(client):
+    assert client.delete("/api/trash").status_code == 401
+
+
+def test_empty_trash_purges_everything(client, auth, tmp_notes):
+    _create(client, auth, "Med historik", filename="a.md")
+    client.patch("/api/notes/a", json={"content": "v2"}, headers=auth)
+    client.delete("/api/notes/a", headers=auth)
+    _create(client, auth, "Utan historik", filename="b.md")
+    client.delete("/api/notes/b", headers=auth)
+    _create(client, auth, "Levande not", filename="kvar.md")
+
+    r = client.delete("/api/trash", headers=auth)
+    assert r.status_code == 200
+    assert r.json() == {"status": "purged", "count": 2}
+    assert client.get("/api/trash", headers=auth).json() == []
+    # Inga filer kvar under .trash, levande noten orörd
+    assert [p for p in (tmp_notes / ".trash").rglob("*") if p.is_file()] == []
+    assert client.get("/api/notes/kvar", headers=auth).status_code == 200
+
+
+def test_empty_trash_when_already_empty(client, auth):
+    r = client.delete("/api/trash", headers=auth)
+    assert r.status_code == 200
+    assert r.json()["count"] == 0

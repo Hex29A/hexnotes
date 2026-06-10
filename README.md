@@ -2,7 +2,7 @@
 
 Self-hosted, lightweight note-taking app. Notes are stored as plain `.md` files on disk. No database. Exposes a REST API for browser, mobile (PWA), and AI-agent access.
 
-Current version: see `APP_VERSION` in `backend/main.py`, exposed via `GET /health` and shown at the bottom of the sidebar. Release notes in [CHANGELOG.md](CHANGELOG.md).
+Current version: see `APP_VERSION` in `backend/main.py`, exposed via `GET /health` and shown in the topbar. Release notes in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -256,6 +256,11 @@ Move the note back. If a live note already has the name, the restored note gets 
 
 Returns `{ "status": "purged", "name": "..." }`.
 
+#### `DELETE /api/trash`
+**Permanently empty the trash** — removes every trashed note and all of their version history.
+
+Returns `{ "status": "purged", "count": 7 }`.
+
 ---
 
 ### Health
@@ -409,7 +414,7 @@ Group collapse state is saved per-group in `localStorage`. A **collapse all / ex
 
 To organize notes into a tag group, add `#tagname` anywhere in the note body. Notes with multiple tags appear in each relevant group.
 
-At the bottom of the sidebar: **🗑 Papperskorg** (opens the trash dialog) and the running app version.
+At the bottom of the sidebar: **🗑 Trash** opens the trash dialog. The running app version is shown in the topbar next to the HexNotes title.
 
 ---
 
@@ -423,8 +428,8 @@ At the bottom of the sidebar: **🗑 Papperskorg** (opens the trash dialog) and 
 
 ## Version History & Trash (UI)
 
-- **🕘 in the filename row** — lists earlier versions of the note (timestamp + preview). Click one to read it; **Återställ** saves it back as the current content (the replaced state is snapshotted first, so a restore is always undoable).
-- **🗑 at the bottom of the sidebar** — lists deleted notes. Click one to read it; **Återställ** moves it back (under a unique name if taken), **Radera permanent** destroys the note *and* its history after a confirming second click.
+- **🕘 in the filename row** — lists earlier versions of the note (timestamp + preview). Click one to read it; **Restore** saves it back as the current content (the replaced state is snapshotted first, so a restore is always undoable).
+- **🗑 at the bottom of the sidebar** — lists deleted notes. Click one to read it; **Restore** moves it back (under a unique name if taken), **Delete forever** destroys the note *and* its history. **Empty trash** purges everything at once. All destructive buttons require a confirming second click.
 
 ---
 
@@ -473,7 +478,7 @@ Also keep in mind that filesystem backups of `notes/` contain copies of everythi
 
 ## Versioning
 
-`major.minor`, kept in `APP_VERSION` in `backend/main.py` — single source of truth, exposed via `GET /health` and shown in the sidebar. Bump **minor** for new features, **major** for breaking changes (API incompatibility or storage format changes requiring migration). Document each release in [CHANGELOG.md](CHANGELOG.md).
+`major.minor`, kept in `APP_VERSION` in `backend/main.py` — single source of truth, exposed via `GET /health` and shown in the topbar. Bump **minor** for new features, **major** for breaking changes (API incompatibility or storage format changes requiring migration). Document each release in [CHANGELOG.md](CHANGELOG.md).
 
 The service worker cache name (`hexnotes-vN` in `static/sw.js`) is deliberately **not** tied to the app version: since the app shell is fetched network-first, deploys reach clients without cache bumps. Only bump it when the caching strategy itself changes.
 

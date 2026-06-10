@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="sv">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
@@ -806,13 +806,8 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
 
 
 /* Trash specifics */
-#trash-bar {
-  padding: 8px 10px 14px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-#app-version { font-size: 10px; color: var(--text-muted); padding-right: 4px; }
+#trash-bar { padding: 8px 10px 14px; }
+#app-version { font-size: 10px; color: var(--text-muted); font-weight: 400; }
 #btn-trash {
   font-size: 11px;
   color: var(--text-muted);
@@ -834,6 +829,23 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
 }
 #trash-purge:hover { background: var(--error-bg); }
 #trash-purge.armed { background: var(--error-text); color: white; font-weight: 700; }
+#trash-list-actions {
+  display: none;
+  justify-content: flex-end;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+#trash-empty {
+  background: none;
+  border: 1px solid var(--error-text);
+  color: var(--error-text);
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+#trash-empty:hover { background: var(--error-bg); }
+#trash-empty.armed { background: var(--error-text); color: white; font-weight: 700; }
 .trash-item-original { font-size: 12px; color: var(--text-primary); }
 
 /* Match highlight */
@@ -897,7 +909,7 @@ mark {
   <div id="topbar">
     <button id="btn-back" title="Back">←</button>
     <button id="btn-menu" title="Toggle sidebar">☰</button>
-    <span id="topbar-title">HexNotes</span>
+    <span id="topbar-title">HexNotes <span id="app-version"></span></span>
     <div id="search-wrap">
       <input type="text" id="search-input" placeholder="Search..." spellcheck="false">
       <button id="btn-search-clear" title="Clear search">✕</button>
@@ -913,7 +925,7 @@ mark {
       <div id="tag-filters"></div>
       <div id="collapse-all-bar"><button id="btn-collapse-all">▾ collapse all</button></div>
       <div id="notes-list"></div>
-      <div id="trash-bar"><button id="btn-trash">🗑 Papperskorg</button><span id="app-version"></span></div>
+      <div id="trash-bar"><button id="btn-trash">🗑 Trash</button></div>
     </div>
 
     <!-- Editor area -->
@@ -970,15 +982,18 @@ mark {
   <div id="trash-dialog">
     <div id="trash-header">
       <button id="trash-back" title="Back to list">←</button>
-      <span id="trash-title">Papperskorg</span>
+      <span id="trash-title">Trash</span>
       <button id="trash-close" title="Close">✕</button>
     </div>
     <div id="trash-list"></div>
+    <div id="trash-list-actions">
+      <button id="trash-empty">Empty trash</button>
+    </div>
     <div id="trash-view">
       <pre id="trash-content"></pre>
       <div id="trash-actions">
-        <button id="trash-purge">Radera permanent</button>
-        <button id="trash-restore">Återställ</button>
+        <button id="trash-purge">Delete forever</button>
+        <button id="trash-restore">Restore</button>
       </div>
     </div>
   </div>
@@ -989,14 +1004,14 @@ mark {
   <div id="history-dialog">
     <div id="history-header">
       <button id="history-back" title="Back to list">←</button>
-      <span id="history-title">Versionshistorik</span>
+      <span id="history-title">Version history</span>
       <button id="history-close" title="Close">✕</button>
     </div>
     <div id="history-list"></div>
     <div id="history-view">
       <pre id="history-content"></pre>
       <div id="history-actions">
-        <button id="history-restore">Återställ</button>
+        <button id="history-restore">Restore</button>
       </div>
     </div>
   </div>
@@ -1114,7 +1129,7 @@ $authSubmit.addEventListener('click', async () => {
       $authError.style.display = 'block';
     }
   } catch {
-    $authError.textContent = 'Kan inte ansluta till servern';
+    $authError.textContent = 'Cannot reach the server';
     $authError.style.display = 'block';
   }
 });
@@ -1859,7 +1874,7 @@ let historyVersionContent = null;
 
 function formatVersionDate(timestamp) {
   // Timestamps from the backend are UTC without zone suffix
-  return new Date(timestamp + 'Z').toLocaleString('sv-SE');
+  return new Date(timestamp + 'Z').toLocaleString('en-GB');
 }
 
 function showHistoryList() {
@@ -1867,7 +1882,7 @@ function showHistoryList() {
   $historyView.style.display = 'none';
   $historyList.style.display = 'block';
   $historyBack.style.display = 'none';
-  $historyTitle.textContent = 'Versionshistorik';
+  $historyTitle.textContent = 'Version history';
 }
 
 async function openHistory() {
@@ -1880,7 +1895,7 @@ async function openHistory() {
     if (versions.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'history-empty';
-      empty.textContent = 'Inga tidigare versioner';
+      empty.textContent = 'No earlier versions';
       $historyList.appendChild(empty);
     }
     for (const v of versions) {
@@ -1955,22 +1970,34 @@ const $trashView = document.getElementById('trash-view');
 const $trashContent = document.getElementById('trash-content');
 const $trashRestore = document.getElementById('trash-restore');
 const $trashPurge = document.getElementById('trash-purge');
+const $trashListActions = document.getElementById('trash-list-actions');
+const $trashEmpty = document.getElementById('trash-empty');
 let trashSelectedName = null;
+let trashHasEntries = false;
 let purgeArmed = false;
+let emptyArmed = false;
 
 function disarmPurge() {
   purgeArmed = false;
   $trashPurge.classList.remove('armed');
-  $trashPurge.textContent = 'Radera permanent';
+  $trashPurge.textContent = 'Delete forever';
+}
+
+function disarmEmpty() {
+  emptyArmed = false;
+  $trashEmpty.classList.remove('armed');
+  $trashEmpty.textContent = 'Empty trash';
 }
 
 function showTrashList() {
   trashSelectedName = null;
   disarmPurge();
+  disarmEmpty();
   $trashView.style.display = 'none';
   $trashList.style.display = 'block';
+  $trashListActions.style.display = trashHasEntries ? 'flex' : 'none';
   $trashBack.style.display = 'none';
-  $trashTitle.textContent = 'Papperskorg';
+  $trashTitle.textContent = 'Trash';
 }
 
 async function openTrash() {
@@ -1978,11 +2005,12 @@ async function openTrash() {
     const res = await apiFetch('/api/trash');
     if (!res.ok) return;
     const entries = await res.json();
+    trashHasEntries = entries.length > 0;
     $trashList.innerHTML = '';
     if (entries.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'history-empty';
-      empty.textContent = 'Papperskorgen är tom';
+      empty.textContent = 'Trash is empty';
       $trashList.appendChild(empty);
     }
     for (const t of entries) {
@@ -2011,9 +2039,10 @@ async function openTrashEntry(t) {
     const data = await res.json();
     trashSelectedName = data.name;
     disarmPurge();
-    $trashContent.textContent = data.content || '(tom not)';
+    $trashContent.textContent = data.content || '(empty note)';
     $trashTitle.textContent = data.original_filename + ' · ' + formatVersionDate(data.deleted_at);
     $trashList.style.display = 'none';
+    $trashListActions.style.display = 'none';
     $trashView.style.display = 'flex';
     $trashBack.style.display = 'block';
   } catch {}
@@ -2023,6 +2052,7 @@ function closeTrash() {
   $trashOverlay.classList.remove('active');
   trashSelectedName = null;
   disarmPurge();
+  disarmEmpty();
 }
 
 $btnTrash.addEventListener('click', openTrash);
@@ -2044,18 +2074,31 @@ $trashRestore.addEventListener('click', async () => {
   } catch {}
 });
 
-// Permanent radering kräver två klick — första klicket armerar knappen
+// Destructive actions require two clicks — the first click arms the button
 $trashPurge.addEventListener('click', async () => {
   if (!trashSelectedName) return;
   if (!purgeArmed) {
     purgeArmed = true;
     $trashPurge.classList.add('armed');
-    $trashPurge.textContent = 'Säker? Klicka igen';
+    $trashPurge.textContent = 'Sure? Click again';
     return;
   }
   try {
     const res = await apiFetch(`/api/trash/${encodeURIComponent(trashSelectedName)}`, { method: 'DELETE' });
-    if (res.ok) openTrash(); // tillbaka till uppdaterad lista
+    if (res.ok) openTrash(); // back to the refreshed list
+  } catch {}
+});
+
+$trashEmpty.addEventListener('click', async () => {
+  if (!emptyArmed) {
+    emptyArmed = true;
+    $trashEmpty.classList.add('armed');
+    $trashEmpty.textContent = 'Delete all forever? Click again';
+    return;
+  }
+  try {
+    const res = await apiFetch('/api/trash', { method: 'DELETE' });
+    if (res.ok) openTrash();
   } catch {}
 });
 

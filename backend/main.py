@@ -17,7 +17,7 @@ from pydantic import BaseModel
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-APP_VERSION = "1.5"  # bump minor for features, major for breaking changes — see CHANGELOG.md
+APP_VERSION = "1.6"  # bump minor for features, major for breaking changes — see CHANGELOG.md
 
 NOTES_PATH = Path("/app/notes")
 TRASH_PATH = NOTES_PATH / ".trash"
@@ -669,6 +669,22 @@ async def get_note_raw(note_id: str, _=Depends(require_token)):
 # ---------------------------------------------------------------------------
 # Trash endpoints
 # ---------------------------------------------------------------------------
+
+@app.delete("/api/trash")
+async def empty_trash(_=Depends(require_token)):
+    """Töm papperskorgen permanent — alla filer och all deras historik."""
+    purged = 0
+    if TRASH_PATH.is_dir():
+        for f in TRASH_PATH.glob("*.md"):
+            if f.name.startswith("."):
+                continue
+            f.unlink()
+            purged += 1
+        hist_root = TRASH_PATH / ".history"
+        if hist_root.is_dir():
+            shutil.rmtree(hist_root)
+    return {"status": "purged", "count": purged}
+
 
 @app.get("/api/trash", response_model=list[TrashEntryOut])
 async def list_trash(_=Depends(require_token)):

@@ -9,6 +9,14 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.6 – 2026-06-10
+
+- **Empty trash**: `DELETE /api/trash` raderar allt i papperskorgen permanent
+  (filer + historik); "Empty trash"-knapp i trash-dialogen med tvåklicksskydd
+- Konsekvent engelska i hela UI:t (dialoger, knappar, datumformat)
+- Versionsnumret visas i toppbaren bredvid HexNotes-titeln (flyttat från
+  sidofältet)
+
 ## 1.5 – 2026-06-10
 
 - **Papperskorg med UI**: lista, förhandsvisa, återställ och radera permanent

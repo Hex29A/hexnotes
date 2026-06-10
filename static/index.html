@@ -980,6 +980,7 @@ let isMobile = window.innerWidth <= 768;
 let mobileShowList = false;
 let isRenaming = false;
 let isPreviewMode = false;
+let noteHadContent = false;
 let collapsedGroups = JSON.parse(localStorage.getItem('hexnotes_collapsed_groups') || '{}');
 
 // === SECTION: DOM REFS ===
@@ -1356,6 +1357,7 @@ function openNote(id) {
 
   setPreviewMode(false);
   $editor.value = note.content;
+  noteHadContent = !!note.content.trim();
   $emptyState.style.display = 'none';
   $editor.parentElement.style.display = 'flex';
   $filenameRow.style.display = 'flex';
@@ -1387,6 +1389,7 @@ function createNewNote() {
   isNew = true;
   newNoteFilename = null;
   pendingContent = null;
+  noteHadContent = false;
 
   $filenameDisplay.textContent = 'new-note.md';
   $filenameDisplay.style.display = '';
@@ -1412,6 +1415,7 @@ function createNewNote() {
 $editor.addEventListener('input', () => {
   const content = $editor.value;
   pendingContent = content;
+  if (content.trim()) noteHadContent = true;
   clearTimeout(saveTimer);
 
   if (!isOnline) return;
@@ -1493,9 +1497,10 @@ function scheduleRetry(content) {
   }
 }
 
-// Auto-trash on blur with empty content
+// Auto-trash on blur with empty content — but only if the note ever had
+// content; a freshly named empty note must survive losing focus
 $editor.addEventListener('blur', () => {
-  if (!activeNoteId || isNew) return;
+  if (!activeNoteId || isNew || !noteHadContent) return;
   const content = $editor.value;
   if (!content || !content.trim()) {
     // Move to trash via PATCH with empty content
@@ -1661,11 +1666,43 @@ async function doRename() {
   try {
     const id = isNew ? null : activeNoteId;
     if (!id) {
-      // For new notes, just set the desired filename
-      newNoteFilename = newName;
-      $filenameDisplay.textContent = newName;
-      cancelRename();
-      $editor.focus();
+      // For new notes: naming the note creates it right away, even with empty content
+      let res;
+      try {
+        res = await apiFetch('/api/notes', {
+          method: 'POST',
+          body: { content: $editor.value || '', filename: newName },
+        });
+      } catch {
+        // Offline/network error — keep the name and create on first autosave instead
+        newNoteFilename = newName;
+        $filenameDisplay.textContent = newName;
+        cancelRename();
+        $editor.focus();
+        return;
+      }
+      if (res.ok) {
+        const created = await res.json();
+        activeNoteId = created.id;
+        isNew = false;
+        newNoteFilename = null;
+        noteHadContent = !!created.content.trim();
+        localStorage.setItem('hexnotes_lastNote', created.id);
+        $filenameDisplay.textContent = created.filename;
+        cancelRename();
+        $editor.focus();
+        const listRes = await apiFetch('/api/notes?limit=200');
+        if (listRes.ok) {
+          notes = await listRes.json();
+          renderNotesList();
+        }
+      } else if (res.status === 409) {
+        $filenameError.textContent = 'A note with that name already exists';
+        $filenameError.style.display = 'block';
+      } else {
+        $filenameError.textContent = 'Could not create note';
+        $filenameError.style.display = 'block';
+      }
       return;
     }
     const res = await apiFetch(`/api/notes/${encodeURIComponent(id)}/rename`, {

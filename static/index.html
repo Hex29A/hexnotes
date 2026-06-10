@@ -723,7 +723,7 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
   flex-shrink: 0;
 }
 #filename-history-btn:hover { color: var(--accent); }
-#history-overlay {
+#history-overlay, #trash-overlay {
   display: none;
   position: fixed; top: 0; left: 0; right: 0; bottom: 0;
   background: rgba(0,0,0,0.5);
@@ -731,8 +731,8 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
   align-items: center;
   justify-content: center;
 }
-#history-overlay.active { display: flex; }
-#history-dialog {
+#history-overlay.active, #trash-overlay.active { display: flex; }
+#history-dialog, #trash-dialog {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -744,7 +744,7 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
   overflow: hidden;
   box-shadow: 0 8px 32px rgba(0,0,0,0.5);
 }
-#history-header {
+#history-header, #trash-header {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -752,12 +752,12 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
-#history-title { font-size: 13px; font-weight: 700; color: var(--accent); flex: 1; }
-#history-back { font-size: 14px; padding: 2px 6px; color: var(--text-muted); display: none; }
-#history-back:hover { color: var(--text-primary); }
-#history-close { font-size: 14px; padding: 2px 6px; color: var(--text-muted); }
-#history-close:hover { color: var(--text-primary); }
-#history-list { overflow-y: auto; }
+#history-title, #trash-title { font-size: 13px; font-weight: 700; color: var(--accent); flex: 1; }
+#history-back, #trash-back { font-size: 14px; padding: 2px 6px; color: var(--text-muted); display: none; }
+#history-back:hover, #trash-back:hover { color: var(--text-primary); }
+#history-close, #trash-close { font-size: 14px; padding: 2px 6px; color: var(--text-muted); }
+#history-close:hover, #trash-close:hover { color: var(--text-primary); }
+#history-list, #trash-list { overflow-y: auto; }
 .history-item {
   padding: 10px 16px;
   cursor: pointer;
@@ -774,8 +774,8 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
   margin-top: 2px;
 }
 .history-empty { padding: 16px; font-size: 12px; color: var(--text-muted); }
-#history-view { display: none; flex-direction: column; min-height: 0; }
-#history-content {
+#history-view, #trash-view { display: none; flex-direction: column; min-height: 0; }
+#history-content, #trash-content {
   flex: 1;
   overflow-y: auto;
   margin: 0;
@@ -787,14 +787,14 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
   word-break: break-word;
   background: var(--bg-primary);
 }
-#history-actions {
+#history-actions, #trash-actions {
   display: flex;
   justify-content: flex-end;
   padding: 10px 16px;
   border-top: 1px solid var(--border);
   flex-shrink: 0;
 }
-#history-restore {
+#history-restore, #trash-restore {
   background: var(--accent);
   color: white;
   padding: 6px 20px;
@@ -802,7 +802,33 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
   font-size: 13px;
   font-weight: 700;
 }
-#history-restore:hover { opacity: 0.9; }
+#history-restore:hover, #trash-restore:hover { opacity: 0.9; }
+
+
+/* Trash specifics */
+#trash-bar { padding: 8px 10px 14px; }
+#btn-trash {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-family: var(--font);
+  letter-spacing: 0.03em;
+}
+#btn-trash:hover { color: var(--text-primary); }
+#trash-actions { gap: 10px; }
+#trash-purge {
+  background: none;
+  border: 1px solid var(--error-text);
+  color: var(--error-text);
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  margin-right: auto;
+}
+#trash-purge:hover { background: var(--error-bg); }
+#trash-purge.armed { background: var(--error-text); color: white; font-weight: 700; }
+.trash-item-original { font-size: 12px; color: var(--text-primary); }
 
 /* Match highlight */
 mark {
@@ -881,6 +907,7 @@ mark {
       <div id="tag-filters"></div>
       <div id="collapse-all-bar"><button id="btn-collapse-all">▾ collapse all</button></div>
       <div id="notes-list"></div>
+      <div id="trash-bar"><button id="btn-trash">🗑 Papperskorg</button></div>
     </div>
 
     <!-- Editor area -->
@@ -931,6 +958,25 @@ mark {
 
 <!-- Offline bar -->
 <div id="offline-bar">● Offline – changes will be saved when you're back online</div>
+
+<!-- Trash dialog -->
+<div id="trash-overlay">
+  <div id="trash-dialog">
+    <div id="trash-header">
+      <button id="trash-back" title="Back to list">←</button>
+      <span id="trash-title">Papperskorg</span>
+      <button id="trash-close" title="Close">✕</button>
+    </div>
+    <div id="trash-list"></div>
+    <div id="trash-view">
+      <pre id="trash-content"></pre>
+      <div id="trash-actions">
+        <button id="trash-purge">Radera permanent</button>
+        <button id="trash-restore">Återställ</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- Version history dialog -->
 <div id="history-overlay">
@@ -1889,6 +1935,121 @@ $historyRestore.addEventListener('click', async () => {
   } catch {}
 });
 
+// === SECTION: TRASH ===
+const $btnTrash = document.getElementById('btn-trash');
+const $trashOverlay = document.getElementById('trash-overlay');
+const $trashTitle = document.getElementById('trash-title');
+const $trashBack = document.getElementById('trash-back');
+const $trashClose = document.getElementById('trash-close');
+const $trashList = document.getElementById('trash-list');
+const $trashView = document.getElementById('trash-view');
+const $trashContent = document.getElementById('trash-content');
+const $trashRestore = document.getElementById('trash-restore');
+const $trashPurge = document.getElementById('trash-purge');
+let trashSelectedName = null;
+let purgeArmed = false;
+
+function disarmPurge() {
+  purgeArmed = false;
+  $trashPurge.classList.remove('armed');
+  $trashPurge.textContent = 'Radera permanent';
+}
+
+function showTrashList() {
+  trashSelectedName = null;
+  disarmPurge();
+  $trashView.style.display = 'none';
+  $trashList.style.display = 'block';
+  $trashBack.style.display = 'none';
+  $trashTitle.textContent = 'Papperskorg';
+}
+
+async function openTrash() {
+  try {
+    const res = await apiFetch('/api/trash');
+    if (!res.ok) return;
+    const entries = await res.json();
+    $trashList.innerHTML = '';
+    if (entries.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'history-empty';
+      empty.textContent = 'Papperskorgen är tom';
+      $trashList.appendChild(empty);
+    }
+    for (const t of entries) {
+      const item = document.createElement('div');
+      item.className = 'history-item';
+      const nameEl = document.createElement('div');
+      nameEl.className = 'trash-item-original';
+      nameEl.textContent = t.original_filename;
+      const dateEl = document.createElement('div');
+      dateEl.className = 'history-item-preview';
+      dateEl.textContent = formatVersionDate(t.deleted_at) + (t.preview ? ' · ' + t.preview : '');
+      item.appendChild(nameEl);
+      item.appendChild(dateEl);
+      item.addEventListener('click', () => openTrashEntry(t));
+      $trashList.appendChild(item);
+    }
+    showTrashList();
+    $trashOverlay.classList.add('active');
+  } catch {}
+}
+
+async function openTrashEntry(t) {
+  try {
+    const res = await apiFetch(`/api/trash/${encodeURIComponent(t.name)}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    trashSelectedName = data.name;
+    disarmPurge();
+    $trashContent.textContent = data.content || '(tom not)';
+    $trashTitle.textContent = data.original_filename + ' · ' + formatVersionDate(data.deleted_at);
+    $trashList.style.display = 'none';
+    $trashView.style.display = 'flex';
+    $trashBack.style.display = 'block';
+  } catch {}
+}
+
+function closeTrash() {
+  $trashOverlay.classList.remove('active');
+  trashSelectedName = null;
+  disarmPurge();
+}
+
+$btnTrash.addEventListener('click', openTrash);
+$trashBack.addEventListener('click', () => openTrash());
+$trashClose.addEventListener('click', closeTrash);
+$trashOverlay.addEventListener('click', e => { if (e.target === $trashOverlay) closeTrash(); });
+
+$trashRestore.addEventListener('click', async () => {
+  if (!trashSelectedName) return;
+  try {
+    const res = await apiFetch(`/api/trash/${encodeURIComponent(trashSelectedName)}/restore`, { method: 'POST' });
+    if (res.ok) {
+      const restored = await res.json();
+      closeTrash();
+      await loadNotes();
+      openNote(restored.id);
+      if (isMobile) hideMobileList();
+    }
+  } catch {}
+});
+
+// Permanent radering kräver två klick — första klicket armerar knappen
+$trashPurge.addEventListener('click', async () => {
+  if (!trashSelectedName) return;
+  if (!purgeArmed) {
+    purgeArmed = true;
+    $trashPurge.classList.add('armed');
+    $trashPurge.textContent = 'Säker? Klicka igen';
+    return;
+  }
+  try {
+    const res = await apiFetch(`/api/trash/${encodeURIComponent(trashSelectedName)}`, { method: 'DELETE' });
+    if (res.ok) openTrash(); // tillbaka till uppdaterad lista
+  } catch {}
+});
+
 // === SECTION: SIDEBAR ===
 function applySidebarState() {
   if (isMobile) return;
@@ -1974,6 +2135,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     if (document.getElementById('palette-overlay').classList.contains('active')) { closePalette(); return; }
     if (document.getElementById('history-overlay').classList.contains('active')) { closeHistory(); return; }
+    if (document.getElementById('trash-overlay').classList.contains('active')) { closeTrash(); return; }
     if (document.getElementById('find-bar').style.display === 'flex') { closeFindBar(); $editor.focus(); return; }
     if (document.activeElement === $searchInput) {
       $searchInput.value = '';

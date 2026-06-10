@@ -53,6 +53,16 @@ class NoteUpdate(BaseModel):
 class NoteRename(BaseModel):
     new_filename: str
 
+class HistoryEntryOut(BaseModel):
+    version: str
+    timestamp: str
+    preview: str
+
+class HistoryVersionOut(BaseModel):
+    version: str
+    timestamp: str
+    content: str
+
 class TokenCreate(BaseModel):
     name: str
 
@@ -210,6 +220,35 @@ def invalidate_rename(old_id: str, new_id: str):
 
 def invalidate_delete(note_id: str):
     notes_index.pop(note_id, None)
+
+
+# ---------------------------------------------------------------------------
+# Version history
+# ---------------------------------------------------------------------------
+HISTORY_DIRNAME = ".history"
+VERSION_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{6}$")
+
+
+def _history_dir(note_id: str) -> Path:
+    return NOTES_PATH / HISTORY_DIRNAME / note_id
+
+
+def _snapshot_note(note_id: str):
+    """Spara nuvarande version av noten till .history/<note_id>/<timestamp>.md"""
+    path = NOTES_PATH / f"{note_id}.md"
+    if not path.exists():
+        return
+    hist = _history_dir(note_id)
+    hist.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now(UTC).strftime("%Y-%m-%dT%H-%M-%S-%f")
+    (hist / f"{ts}.md").write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+
+
+def _version_timestamp(version: str) -> str:
+    """2026-06-10T08-30-00-123456 → 2026-06-10T08:30:00 (UTC)"""
+    date_part, time_part = version.split("T")
+    h, m, s, _us = time_part.split("-")
+    return f"{date_part}T{h}:{m}:{s}"
 
 
 # ---------------------------------------------------------------------------
@@ -429,6 +468,7 @@ async def update_note(note_id: str, body: NoteUpdate, _=Depends(require_token)):
 
     # Empty content → move to trash
     if not body.content or not body.content.strip():
+        _snapshot_note(note_id)
         trash_dest = TRASH_PATH / path.name
         if trash_dest.exists():
             trash_dest.unlink()
@@ -437,7 +477,9 @@ async def update_note(note_id: str, body: NoteUpdate, _=Depends(require_token)):
         return JSONResponse(status_code=204, content=None)
 
     # Read existing frontmatter for created date and pinned state
-    meta, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
+    meta, old_body = parse_frontmatter(path.read_text(encoding="utf-8"))
+    if old_body != body.content:
+        _snapshot_note(note_id)
     created = meta.get("created")
     if created is not None:
         created = str(created)
@@ -468,6 +510,9 @@ async def rename_note(note_id: str, body: NoteRename, _=Depends(require_token)):
     old_path.rename(new_path)
 
     new_id = new_path.stem
+    old_hist = _history_dir(note_id)
+    if old_hist.is_dir() and not _history_dir(new_id).exists():
+        old_hist.rename(_history_dir(new_id))
     invalidate_rename(note_id, new_id)
     return notes_index[new_id]
 
@@ -505,6 +550,52 @@ async def delete_note(note_id: str, _=Depends(require_token)):
     path.rename(trash_dest)
     invalidate_delete(note_id)
     return {"status": "deleted", "id": note_id}
+
+
+@app.get("/api/notes/{note_id}/history", response_model=list[HistoryEntryOut])
+async def list_note_history(note_id: str, _=Depends(require_token)):
+    if note_id not in notes_index:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    hist = _history_dir(note_id)
+    entries = []
+    if hist.is_dir():
+        for f in sorted(hist.glob("*.md"), reverse=True):
+            version = f.stem
+            if not VERSION_RE.match(version):
+                continue
+            _meta, content = parse_frontmatter(f.read_text(encoding="utf-8"))
+            first_line = ""
+            for line in content.strip().splitlines():
+                stripped = line.strip()
+                if stripped:
+                    first_line = stripped
+                    break
+            entries.append({
+                "version": version,
+                "timestamp": _version_timestamp(version),
+                "preview": first_line[:80],
+            })
+    return entries
+
+
+@app.get("/api/notes/{note_id}/history/{version}", response_model=HistoryVersionOut)
+async def get_note_history_version(note_id: str, version: str, _=Depends(require_token)):
+    if note_id not in notes_index:
+        raise HTTPException(status_code=404, detail="Note not found")
+    if not VERSION_RE.match(version):
+        raise HTTPException(status_code=404, detail="Version not found")
+
+    f = _history_dir(note_id) / f"{version}.md"
+    if not f.exists():
+        raise HTTPException(status_code=404, detail="Version not found")
+
+    _meta, content = parse_frontmatter(f.read_text(encoding="utf-8"))
+    return {
+        "version": version,
+        "timestamp": _version_timestamp(version),
+        "content": content,
+    }
 
 
 @app.get("/api/notes/{note_id}/raw")

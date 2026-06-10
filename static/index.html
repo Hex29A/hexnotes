@@ -715,6 +715,95 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
 }
 .palette-item-date { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
 
+/* Version history */
+#filename-history-btn {
+  padding: 8px 10px;
+  font-size: 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+#filename-history-btn:hover { color: var(--accent); }
+#history-overlay {
+  display: none;
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 350;
+  align-items: center;
+  justify-content: center;
+}
+#history-overlay.active { display: flex; }
+#history-dialog {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  width: 560px;
+  max-width: 92vw;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+#history-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+#history-title { font-size: 13px; font-weight: 700; color: var(--accent); flex: 1; }
+#history-back { font-size: 14px; padding: 2px 6px; color: var(--text-muted); display: none; }
+#history-back:hover { color: var(--text-primary); }
+#history-close { font-size: 14px; padding: 2px 6px; color: var(--text-muted); }
+#history-close:hover { color: var(--text-primary); }
+#history-list { overflow-y: auto; }
+.history-item {
+  padding: 10px 16px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+}
+.history-item:hover { background: var(--bg-card-active); }
+.history-item-date { font-size: 12px; color: var(--text-primary); }
+.history-item-preview {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+.history-empty { padding: 16px; font-size: 12px; color: var(--text-muted); }
+#history-view { display: none; flex-direction: column; min-height: 0; }
+#history-content {
+  flex: 1;
+  overflow-y: auto;
+  margin: 0;
+  padding: 12px 16px;
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--bg-primary);
+}
+#history-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+#history-restore {
+  background: var(--accent);
+  color: white;
+  padding: 6px 20px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 700;
+}
+#history-restore:hover { opacity: 0.9; }
+
 /* Match highlight */
 mark {
   background: var(--accent-dim);
@@ -802,6 +891,7 @@ mark {
         <input type="text" id="filename-input" spellcheck="false">
         <button id="filename-edit-btn" title="Rename">✎</button>
         <button id="filename-pin-btn" title="Pin to top">📌</button>
+        <button id="filename-history-btn" title="Version history">🕘</button>
         <button id="filename-preview-btn" title="Preview (Ctrl+M)">👁</button>
         <button id="filename-delete-btn" title="Delete note">🗑</button>
       </div>
@@ -841,6 +931,24 @@ mark {
 
 <!-- Offline bar -->
 <div id="offline-bar">● Offline – changes will be saved when you're back online</div>
+
+<!-- Version history dialog -->
+<div id="history-overlay">
+  <div id="history-dialog">
+    <div id="history-header">
+      <button id="history-back" title="Back to list">←</button>
+      <span id="history-title">Versionshistorik</span>
+      <button id="history-close" title="Close">✕</button>
+    </div>
+    <div id="history-list"></div>
+    <div id="history-view">
+      <pre id="history-content"></pre>
+      <div id="history-actions">
+        <button id="history-restore">Återställ</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- Delete confirm dialog -->
 <div id="confirm-overlay">
@@ -1645,6 +1753,105 @@ $btnConfirmNo.addEventListener('click', () => {
   pendingDeleteId = null;
 });
 
+// === SECTION: VERSION HISTORY ===
+const $historyBtn = document.getElementById('filename-history-btn');
+const $historyOverlay = document.getElementById('history-overlay');
+const $historyTitle = document.getElementById('history-title');
+const $historyBack = document.getElementById('history-back');
+const $historyClose = document.getElementById('history-close');
+const $historyList = document.getElementById('history-list');
+const $historyView = document.getElementById('history-view');
+const $historyContent = document.getElementById('history-content');
+const $historyRestore = document.getElementById('history-restore');
+let historyVersionContent = null;
+
+function formatVersionDate(timestamp) {
+  // Timestamps from the backend are UTC without zone suffix
+  return new Date(timestamp + 'Z').toLocaleString('sv-SE');
+}
+
+function showHistoryList() {
+  historyVersionContent = null;
+  $historyView.style.display = 'none';
+  $historyList.style.display = 'block';
+  $historyBack.style.display = 'none';
+  $historyTitle.textContent = 'Versionshistorik';
+}
+
+async function openHistory() {
+  if (!activeNoteId) return;
+  try {
+    const res = await apiFetch(`/api/notes/${encodeURIComponent(activeNoteId)}/history`);
+    if (!res.ok) return;
+    const versions = await res.json();
+    $historyList.innerHTML = '';
+    if (versions.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'history-empty';
+      empty.textContent = 'Inga tidigare versioner';
+      $historyList.appendChild(empty);
+    }
+    for (const v of versions) {
+      const item = document.createElement('div');
+      item.className = 'history-item';
+      const dateEl = document.createElement('div');
+      dateEl.className = 'history-item-date';
+      dateEl.textContent = formatVersionDate(v.timestamp);
+      const previewEl = document.createElement('div');
+      previewEl.className = 'history-item-preview';
+      previewEl.textContent = v.preview;
+      item.appendChild(dateEl);
+      item.appendChild(previewEl);
+      item.addEventListener('click', () => openHistoryVersion(v));
+      $historyList.appendChild(item);
+    }
+    showHistoryList();
+    $historyOverlay.classList.add('active');
+  } catch {}
+}
+
+async function openHistoryVersion(v) {
+  try {
+    const res = await apiFetch(`/api/notes/${encodeURIComponent(activeNoteId)}/history/${encodeURIComponent(v.version)}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    historyVersionContent = data.content;
+    $historyContent.textContent = data.content;
+    $historyTitle.textContent = formatVersionDate(data.timestamp);
+    $historyList.style.display = 'none';
+    $historyView.style.display = 'flex';
+    $historyBack.style.display = 'block';
+  } catch {}
+}
+
+function closeHistory() {
+  $historyOverlay.classList.remove('active');
+  historyVersionContent = null;
+}
+
+$historyBtn.addEventListener('click', openHistory);
+$historyBack.addEventListener('click', showHistoryList);
+$historyClose.addEventListener('click', closeHistory);
+$historyOverlay.addEventListener('click', e => { if (e.target === $historyOverlay) closeHistory(); });
+
+$historyRestore.addEventListener('click', async () => {
+  if (!activeNoteId || historyVersionContent === null) return;
+  try {
+    const res = await apiFetch(`/api/notes/${encodeURIComponent(activeNoteId)}`, {
+      method: 'PATCH',
+      body: { content: historyVersionContent },
+    });
+    if (res.ok) {
+      const updated = await res.json();
+      $editor.value = updated.content;
+      pendingContent = null;
+      closeHistory();
+      showSaved();
+      loadNotes();
+    }
+  } catch {}
+});
+
 // === SECTION: SIDEBAR ===
 function applySidebarState() {
   if (isMobile) return;
@@ -1729,6 +1936,7 @@ document.addEventListener('keydown', e => {
   // Escape → close palette / find bar / clear search
   if (e.key === 'Escape') {
     if (document.getElementById('palette-overlay').classList.contains('active')) { closePalette(); return; }
+    if (document.getElementById('history-overlay').classList.contains('active')) { closeHistory(); return; }
     if (document.getElementById('find-bar').style.display === 'flex') { closeFindBar(); $editor.focus(); return; }
     if (document.activeElement === $searchInput) {
       $searchInput.value = '';

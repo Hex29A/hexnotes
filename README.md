@@ -418,6 +418,14 @@ At the bottom of the sidebar: **🗑 Trash** opens the trash dialog. The running
 
 ---
 
+## Start Page (Home Note)
+
+If a note named `home.md` exists, the app opens it **in preview mode** on startup instead of the last-opened note. Combined with wiki links this makes a self-curated start page: fill it with `[[links]]` to your important notes and click your way from there. Clicking the **HexNotes** title in the topbar returns to the home note at any time.
+
+No `home.md`? The app falls back to the previous behaviour (last-opened note, or the most recent one).
+
+---
+
 ## Markdown Preview & Wiki Links
 
 `Ctrl+M` (or the 👁 button) toggles a rendered Markdown preview of the current note.

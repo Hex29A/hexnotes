@@ -108,7 +108,7 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
 }
 #btn-menu { font-size: 20px; padding: 4px 8px; }
 #btn-back { font-size: 20px; padding: 4px 8px; display: none; }
-#topbar-title { font-weight: 700; font-size: 15px; color: var(--accent); margin-right: auto; }
+#topbar-title { font-weight: 700; font-size: 15px; color: var(--accent); margin-right: auto; cursor: pointer; }
 #search-input {
   flex: 1;
   max-width: 400px;
@@ -602,7 +602,14 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
   flex-shrink: 0;
 }
 #filename-preview-btn:hover { color: var(--accent); }
-#filename-preview-btn.active { color: var(--accent); }
+
+/* Active state for emoji toggle buttons — emojis ignore CSS color,
+   so a visible chip (background + ring) marks the on-state */
+#filename-row button.active {
+  background: var(--accent-dim);
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
 
 /* Search wrap + clear button */
 #search-wrap {
@@ -1148,18 +1155,17 @@ async function loadNotes() {
     if (!res.ok) throw new Error();
     notes = await res.json();
     renderNotesList();
-    // Restore active note
+    // Restore active note — a note named home.md acts as the start page
     if (!activeNoteId && !isNew) {
+      const home = notes.find(n => n.id === 'home');
       const lastId = localStorage.getItem('hexnotes_lastNote');
-      if (lastId && notes.find(n => n.id === lastId)) {
+      if (home) {
+        openNote(home.id);
+        setPreviewMode(true); // start page renders with clickable wiki-links
+      } else if (lastId && notes.find(n => n.id === lastId)) {
         openNote(lastId);
       } else if (notes.length > 0) {
-        if (isMobile) {
-          // On mobile first load, open the most recent note
-          openNote(notes[0].id);
-        } else {
-          openNote(notes[0].id);
-        }
+        openNote(notes[0].id);
       } else {
         showEmpty();
       }
@@ -1423,7 +1429,7 @@ function openNote(id) {
 
   // Update pin button state
   $filenamePinBtn.title = note.pinned ? 'Unpin' : 'Pin to top';
-  $filenamePinBtn.style.color = note.pinned ? 'var(--accent)' : '';
+  $filenamePinBtn.classList.toggle('active', note.pinned);
 
   setPreviewMode(false);
   $editor.value = note.content;
@@ -1467,6 +1473,8 @@ function createNewNote() {
   $filenameInput.style.display = 'none';
   $filenameError.style.display = 'none';
   $errorBar.style.display = 'none';
+  $filenamePinBtn.classList.remove('active');
+  $filenamePinBtn.title = 'Pin to top';
 
   $editor.value = '';
   $emptyState.style.display = 'none';
@@ -1817,7 +1825,7 @@ $filenamePinBtn.addEventListener('click', async () => {
     const idx = notes.findIndex(n => n.id === activeNoteId);
     if (idx !== -1) notes[idx] = updated;
     $filenamePinBtn.title = updated.pinned ? 'Unpin' : 'Pin to top';
-    $filenamePinBtn.style.color = updated.pinned ? 'var(--accent)' : '';
+    $filenamePinBtn.classList.toggle('active', updated.pinned);
     await loadNotes();
   }
 });
@@ -2119,6 +2127,16 @@ function toggleSidebar() {
 }
 
 $btnMenu.addEventListener('click', toggleSidebar);
+
+// === SECTION: HOME ===
+// Clicking the HexNotes title opens the home note (start page) in preview
+document.getElementById('topbar-title').addEventListener('click', () => {
+  const home = notes.find(n => n.id === 'home');
+  if (!home) return;
+  openNote(home.id);
+  setPreviewMode(true);
+  if (isMobile) hideMobileList();
+});
 
 // === SECTION: MOBILE NAV ===
 function showMobileList() {

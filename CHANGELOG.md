@@ -9,6 +9,14 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.7 – 2026-06-10
+
+- **Startsida via hem-not**: finns en not `home.md` öppnas den i preview-läge
+  vid appstart (med klickbara wiki-länkar) istället för senast öppnade noten;
+  klick på HexNotes-titeln i toppbaren går alltid hem
+- Synlig på-markering för emoji-knappar (📌 pin, 👁 preview): bakgrundschip
+  med accentram — emojis ignorerar CSS-färg, så färgbytet syntes aldrig
+
 ## 1.6 – 2026-06-10
 
 - **Empty trash**: `DELETE /api/trash` raderar allt i papperskorgen permanent

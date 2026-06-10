@@ -586,6 +586,15 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
 #preview th, #preview td { border: 1px solid var(--border); padding: 6px 12px; text-align: left; }
 #preview th { background: var(--bg-card); }
 #preview img { max-width: 100%; border-radius: 4px; }
+#preview a.wiki-link {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid var(--accent);
+}
+#preview a.wiki-link-missing {
+  color: var(--error-text);
+  border-bottom: 1px dashed var(--error-text);
+}
 #filename-preview-btn {
   padding: 8px 10px;
   font-size: 14px;
@@ -1448,6 +1457,42 @@ function showErrorBar(msg) {
 function hideErrorBar() {
   $errorBar.style.display = 'none';
 }
+
+// === SECTION: WIKI LINKS ===
+function findNoteByWikiName(name) {
+  const target = name.trim().replace(/\.md$/i, '').toLowerCase();
+  return notes.find(n => n.id.toLowerCase() === target);
+}
+
+marked.use({
+  extensions: [{
+    name: 'wikilink',
+    level: 'inline',
+    start(src) { return src.indexOf('[['); },
+    tokenizer(src) {
+      const m = /^\[\[([^\[\]\n]+)\]\]/.exec(src);
+      if (m) return { type: 'wikilink', raw: m[0], target: m[1].trim() };
+    },
+    renderer(token) {
+      const exists = !!findNoteByWikiName(token.target);
+      const cls = exists ? 'wiki-link' : 'wiki-link wiki-link-missing';
+      const name = escapeHtml(token.target).replace(/"/g, '&quot;');
+      return `<a href="#" class="${cls}" data-wiki="${name}">${escapeHtml(token.target)}</a>`;
+    },
+  }],
+});
+
+$preview.addEventListener('click', e => {
+  const link = e.target.closest('a[data-wiki]');
+  if (!link) return;
+  e.preventDefault();
+  const note = findNoteByWikiName(link.dataset.wiki);
+  if (note) {
+    openNote(note.id);
+    setPreviewMode(true); // keep browsing in preview when following links
+    if (isMobile) hideMobileList();
+  }
+});
 
 // === SECTION: PREVIEW ===
 function setPreviewMode(on) {

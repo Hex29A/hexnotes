@@ -2,6 +2,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import unicodedata
 from datetime import datetime, date, UTC
 from pathlib import Path
@@ -52,6 +53,18 @@ class NoteUpdate(BaseModel):
 
 class NoteRename(BaseModel):
     new_filename: str
+
+class TrashEntryOut(BaseModel):
+    name: str
+    original_filename: str
+    deleted_at: str
+    preview: str
+
+class TrashContentOut(BaseModel):
+    name: str
+    original_filename: str
+    deleted_at: str
+    content: str
 
 class HistoryEntryOut(BaseModel):
     version: str
@@ -249,6 +262,61 @@ def _version_timestamp(version: str) -> str:
     date_part, time_part = version.split("T")
     h, m, s, _us = time_part.split("-")
     return f"{date_part}T{h}:{m}:{s}"
+
+
+# ---------------------------------------------------------------------------
+# Trash
+# ---------------------------------------------------------------------------
+TRASH_NAME_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{6})__(.+\.md)$")
+
+
+def _move_to_trash(note_id: str) -> str:
+    """Flytta noten till papperskorgen med timestampat namn (skriver aldrig
+    över) och ta historiken med till .trash/.history/. En sista snapshot tas
+    först så att historiken är komplett."""
+    path = NOTES_PATH / f"{note_id}.md"
+    _snapshot_note(note_id)
+    ts = datetime.now(UTC).strftime("%Y-%m-%dT%H-%M-%S-%f")
+    trash_name = f"{ts}__{path.name}"
+    TRASH_PATH.mkdir(parents=True, exist_ok=True)
+    path.rename(TRASH_PATH / trash_name)
+    hist = _history_dir(note_id)
+    if hist.is_dir():
+        dest = TRASH_PATH / ".history" / f"{ts}__{note_id}"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        hist.rename(dest)
+    return trash_name
+
+
+def _trash_entry_path(name: str) -> Path:
+    """Validera trash-namn strikt och returnera sökvägen, annars 404."""
+    if (
+        "/" in name or "\\" in name or ".." in name
+        or name.startswith(".") or not name.endswith(".md")
+    ):
+        raise HTTPException(status_code=404, detail="Not found in trash")
+    p = TRASH_PATH / name
+    if not p.is_file():
+        raise HTTPException(status_code=404, detail="Not found in trash")
+    return p
+
+
+def _trash_meta(p: Path) -> tuple[str, str]:
+    """(ursprungligt filnamn, raderingstidpunkt) för en trash-fil.
+    Filer från tiden före timestampade namn faller tillbaka på mtime."""
+    m = TRASH_NAME_RE.match(p.name)
+    if m:
+        return m.group(2), _version_timestamp(m.group(1))
+    mtime = datetime.fromtimestamp(p.stat().st_mtime, UTC).strftime("%Y-%m-%dT%H:%M:%S")
+    return p.name, mtime
+
+
+def _first_line(content: str) -> str:
+    for line in content.strip().splitlines():
+        stripped = line.strip()
+        if stripped:
+            return stripped[:80]
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -468,11 +536,7 @@ async def update_note(note_id: str, body: NoteUpdate, _=Depends(require_token)):
 
     # Empty content → move to trash
     if not body.content or not body.content.strip():
-        _snapshot_note(note_id)
-        trash_dest = TRASH_PATH / path.name
-        if trash_dest.exists():
-            trash_dest.unlink()
-        path.rename(trash_dest)
+        _move_to_trash(note_id)
         invalidate_delete(note_id)
         return JSONResponse(status_code=204, content=None)
 
@@ -541,11 +605,7 @@ async def delete_note(note_id: str, _=Depends(require_token)):
     if note_id not in notes_index:
         raise HTTPException(status_code=404, detail="Note not found")
 
-    path = NOTES_PATH / f"{note_id}.md"
-    trash_dest = TRASH_PATH / path.name
-    if trash_dest.exists():
-        trash_dest.unlink()
-    path.rename(trash_dest)
+    _move_to_trash(note_id)
     invalidate_delete(note_id)
     return {"status": "deleted", "id": note_id}
 
@@ -602,6 +662,73 @@ async def get_note_raw(note_id: str, _=Depends(require_token)):
         raise HTTPException(status_code=404, detail="Note not found")
     path = NOTES_PATH / f"{note_id}.md"
     return PlainTextResponse(path.read_text(encoding="utf-8"))
+
+
+# ---------------------------------------------------------------------------
+# Trash endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/trash", response_model=list[TrashEntryOut])
+async def list_trash(_=Depends(require_token)):
+    entries = []
+    if TRASH_PATH.is_dir():
+        for f in TRASH_PATH.glob("*.md"):
+            if f.name.startswith("."):
+                continue
+            original, deleted_at = _trash_meta(f)
+            _meta, content = parse_frontmatter(f.read_text(encoding="utf-8"))
+            entries.append({
+                "name": f.name,
+                "original_filename": original,
+                "deleted_at": deleted_at,
+                "preview": _first_line(content),
+            })
+    entries.sort(key=lambda e: (e["deleted_at"], e["name"]), reverse=True)
+    return entries
+
+
+@app.get("/api/trash/{name}", response_model=TrashContentOut)
+async def get_trash_entry(name: str, _=Depends(require_token)):
+    p = _trash_entry_path(name)
+    original, deleted_at = _trash_meta(p)
+    _meta, content = parse_frontmatter(p.read_text(encoding="utf-8"))
+    return {
+        "name": p.name,
+        "original_filename": original,
+        "deleted_at": deleted_at,
+        "content": content,
+    }
+
+
+@app.post("/api/trash/{name}/restore", response_model=NoteOut)
+async def restore_trash_entry(name: str, _=Depends(require_token)):
+    p = _trash_entry_path(name)
+    original, _deleted_at = _trash_meta(p)
+
+    # Never overwrite a live note — restore under a unique name if taken
+    dest_filename = _unique_filename(sanitize_filename(original))
+    dest = NOTES_PATH / dest_filename
+    p.rename(dest)
+    new_id = dest.stem
+
+    trash_hist = TRASH_PATH / ".history" / p.stem
+    if trash_hist.is_dir() and not _history_dir(new_id).exists():
+        _history_dir(new_id).parent.mkdir(parents=True, exist_ok=True)
+        trash_hist.rename(_history_dir(new_id))
+
+    notes_index[new_id] = parse_note(dest)
+    return notes_index[new_id]
+
+
+@app.delete("/api/trash/{name}")
+async def purge_trash_entry(name: str, _=Depends(require_token)):
+    """Radera permanent — tar bort både filen och dess historik."""
+    p = _trash_entry_path(name)
+    hist = TRASH_PATH / ".history" / p.stem
+    p.unlink()
+    if hist.is_dir():
+        shutil.rmtree(hist)
+    return {"status": "purged", "name": name}
 
 
 # ---------------------------------------------------------------------------

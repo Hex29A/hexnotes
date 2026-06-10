@@ -91,8 +91,8 @@ def test_patch_unchanged_content_creates_no_version(client, auth):
 def test_trash_via_empty_patch_creates_snapshot(client, auth, tmp_notes):
     created = _create(client, auth, "Snart borta")
     client.patch(f"/api/notes/{created['id']}", json={"content": ""}, headers=auth)
-    hist_dir = tmp_notes / ".history" / created["id"]
-    snapshots = list(hist_dir.glob("*.md"))
+    # Historiken följer med noten till papperskorgen
+    snapshots = list((tmp_notes / ".trash" / ".history").glob(f"*__{created['id']}/*.md"))
     assert len(snapshots) == 1
     assert "Snart borta" in snapshots[0].read_text()
 

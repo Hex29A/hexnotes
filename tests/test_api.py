@@ -102,7 +102,7 @@ def test_patch_empty_content_moves_to_trash(client, auth, tmp_notes):
     r = client.patch(f"/api/notes/{created['id']}", json={"content": ""}, headers=auth)
     assert r.status_code == 204
     assert not (tmp_notes / f"{created['id']}.md").exists()
-    assert (tmp_notes / ".trash" / f"{created['id']}.md").exists()
+    assert len(list((tmp_notes / ".trash").glob(f"*__{created['id']}.md"))) == 1
 
 
 def test_patch_does_not_change_filename(client, auth):
@@ -151,7 +151,7 @@ def test_delete_moves_to_trash(client, auth, tmp_notes):
     r = client.delete(f"/api/notes/{created['id']}", headers=auth)
     assert r.status_code == 200
     assert not (tmp_notes / "del.md").exists()
-    assert (tmp_notes / ".trash" / "del.md").exists()
+    assert len(list((tmp_notes / ".trash").glob("*__del.md"))) == 1
 
 
 def test_delete_not_found_returns_404(client, auth):
@@ -159,14 +159,16 @@ def test_delete_not_found_returns_404(client, auth):
     assert r.status_code == 404
 
 
-def test_delete_trash_collision_overwrites(client, auth, tmp_notes):
+def test_delete_trash_collision_keeps_both(client, auth, tmp_notes):
     client.post("/api/notes", json={"content": "First", "filename": "del.md"}, headers=auth)
     client.delete("/api/notes/del", headers=auth)
     client.post("/api/notes", json={"content": "Second", "filename": "del.md"}, headers=auth)
     r = client.delete("/api/notes/del", headers=auth)
     assert r.status_code == 200
-    trash_content = (tmp_notes / ".trash" / "del.md").read_text()
-    assert "Second" in trash_content
+    trashed = sorted((tmp_notes / ".trash").glob("*__del.md"))
+    assert len(trashed) == 2
+    contents = trashed[0].read_text() + trashed[1].read_text()
+    assert "First" in contents and "Second" in contents
 
 
 # === Search ===

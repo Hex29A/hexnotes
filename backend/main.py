@@ -498,9 +498,7 @@ async def rename_note(note_id: str, body: NoteRename, _=Depends(require_token)):
     if note_id not in notes_index:
         raise HTTPException(status_code=404, detail="Note not found")
 
-    new_filename = body.new_filename
-    if not new_filename.endswith(".md"):
-        new_filename += ".md"
+    new_filename = sanitize_filename(body.new_filename)
 
     new_path = NOTES_PATH / new_filename
     if new_path.exists():

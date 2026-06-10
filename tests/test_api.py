@@ -246,3 +246,12 @@ def test_health(client):
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
     assert "notes_count" in r.json()
+
+
+def test_rename_sanitizes_path_traversal(client, auth, tmp_notes):
+    client.post("/api/notes", json={"content": "Text", "filename": "old.md"}, headers=auth)
+    r = client.post("/api/notes/old/rename", json={"new_filename": "../../evil"}, headers=auth)
+    assert r.status_code == 200
+    assert r.json()["filename"] == "evil.md"
+    assert (tmp_notes / "evil.md").exists()
+    assert not (tmp_notes.parent / "evil.md").exists()

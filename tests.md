@@ -11,8 +11,14 @@
 tests/
 ├── conftest.py          # pytest fixtures: tmp notes-mapp, test-klient
 ├── test_unit.py         # Unit-tester för ren logik
-└── test_api.py          # Integrationstester för API-endpoints
+├── test_api.py          # Integrationstester för API-endpoints
+├── test_history.py      # Versionshistorik: snapshots, restore, rename-migrering
+└── test_trash.py        # Papperskorg: lista, återställ, permanent radering
 ```
+
+> **Obs:** Detta dokument är den ursprungliga testspecifikationen. Sviten har
+> vuxit sedan dess (86 tester) — `tests/`-katalogen är källan till sanning,
+> och README beskriver vad varje fil täcker.
 
 Kör lokalt inuti Docker:
 

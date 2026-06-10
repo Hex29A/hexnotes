@@ -248,6 +248,7 @@ def test_health(client):
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
     assert "notes_count" in r.json()
+    assert "version" in r.json()
 
 
 def test_rename_sanitizes_path_traversal(client, auth, tmp_notes):

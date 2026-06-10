@@ -17,11 +17,13 @@ from pydantic import BaseModel
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
+APP_VERSION = "1.5"  # bump minor for features, major for breaking changes — see CHANGELOG.md
+
 NOTES_PATH = Path("/app/notes")
 TRASH_PATH = NOTES_PATH / ".trash"
 TOKENS_FILE = Path("/app/tokens.json")
 
-app = FastAPI(title="HexNotes", docs_url="/docs", redoc_url=None)
+app = FastAPI(title="HexNotes", version=APP_VERSION, docs_url="/docs", redoc_url=None)
 
 # ---------------------------------------------------------------------------
 # In-memory token list (source of truth at runtime)
@@ -407,7 +409,7 @@ async def startup():
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "notes_count": len(notes_index)}
+    return {"status": "ok", "notes_count": len(notes_index), "version": APP_VERSION}
 
 
 # ---------------------------------------------------------------------------

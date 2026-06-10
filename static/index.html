@@ -806,7 +806,13 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
 
 
 /* Trash specifics */
-#trash-bar { padding: 8px 10px 14px; }
+#trash-bar {
+  padding: 8px 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+#app-version { font-size: 10px; color: var(--text-muted); padding-right: 4px; }
 #btn-trash {
   font-size: 11px;
   color: var(--text-muted);
@@ -907,7 +913,7 @@ mark {
       <div id="tag-filters"></div>
       <div id="collapse-all-bar"><button id="btn-collapse-all">▾ collapse all</button></div>
       <div id="notes-list"></div>
-      <div id="trash-bar"><button id="btn-trash">🗑 Papperskorg</button></div>
+      <div id="trash-bar"><button id="btn-trash">🗑 Papperskorg</button><span id="app-version"></span></div>
     </div>
 
     <!-- Editor area -->
@@ -1085,6 +1091,9 @@ function showApp() {
   $app.classList.add('active');
   applySidebarState();
   loadNotes();
+  fetch('/health').then(r => r.json()).then(h => {
+    if (h.version) document.getElementById('app-version').textContent = 'v' + h.version;
+  }).catch(() => {});
 }
 
 $authSubmit.addEventListener('click', async () => {

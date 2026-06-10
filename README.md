@@ -2,6 +2,8 @@
 
 Self-hosted, lightweight note-taking app. Notes are stored as plain `.md` files on disk. No database. Exposes a REST API for browser, mobile (PWA), and AI-agent access.
 
+Current version: see `APP_VERSION` in `backend/main.py`, exposed via `GET /health` and shown at the bottom of the sidebar. Release notes in [CHANGELOG.md](CHANGELOG.md).
+
 ---
 
 ## Quick Start
@@ -55,8 +57,16 @@ with urllib.request.urlopen(req) as r:
 notes/
 ├── 2026-04-04.md        ← auto-named with creation date
 ├── ideas.md             ← manually renamed
-└── .trash/              ← deleted notes (not permanent)
+├── .history/            ← version history, one dir per note
+│   └── ideas/
+│       └── 2026-06-10T07-30-00-123456.md   ← snapshot (UTC timestamp)
+└── .trash/              ← deleted notes (restorable, see Trash API)
+    ├── 2026-06-10T08-00-00-654321__old.md  ← timestamped: never overwrites
+    └── .history/
+        └── 2026-06-10T08-00-00-654321__old/  ← the note's history follows it
 ```
+
+Everything lives under `notes/`, so backing up that one bind mount captures notes, history and trash alike.
 
 ---
 
@@ -155,7 +165,8 @@ Update note content. Always send the **full content**, not a diff.
 ```
 
 - Tags in frontmatter are updated automatically from `#tags` in text
-- If `content` is empty or whitespace → note is moved to `.trash/` → returns `204 No Content`
+- The previous version is snapshotted to `.history/<id>/` before the write (skipped if content is unchanged)
+- If `content` is empty or whitespace → note is moved to trash → returns `204 No Content` (restorable via the Trash API)
 
 ---
 
@@ -167,6 +178,8 @@ Rename a note file.
 ```
 
 - `.md` is appended automatically if missing
+- The filename is sanitized (path separators and `..` are stripped)
+- The note's version history follows the new name
 - Returns updated note object with new `id` and `filename`
 - **Important for AI agents:** update your reference to the note's `id` after a successful rename — the old `id` becomes invalid
 
@@ -182,9 +195,9 @@ Returns updated note object with `pinned: true` or `pinned: false`.
 ---
 
 #### `DELETE /api/notes/{id}`
-Move note to `.trash/`. Not a permanent delete.
+Move note to trash. Not a permanent delete — restore it via the Trash API. A final history snapshot is taken first, and the note's history moves to `.trash/.history/` so a new note reusing the name starts with clean history.
 
-Returns `204 No Content`.
+Returns `{ "status": "deleted", "id": "..." }`.
 
 ---
 
@@ -193,14 +206,66 @@ Returns raw file content as `text/plain` (includes YAML frontmatter).
 
 ---
 
+### Version History
+
+Every save snapshots the previous version to `.history/<id>/<utc-timestamp>.md`. Unchanged saves are skipped. In the UI: the 🕘 button in the filename row.
+
+#### `GET /api/notes/{id}/history`
+List versions, newest first.
+
+```json
+[
+  { "version": "2026-06-10T07-30-00-123456", "timestamp": "2026-06-10T07:30:00", "preview": "First line of that version" }
+]
+```
+
+#### `GET /api/notes/{id}/history/{version}`
+Content of a specific version (frontmatter stripped). Version names are strictly validated.
+
+```json
+{ "version": "...", "timestamp": "...", "content": "..." }
+```
+
+There is no dedicated restore endpoint — restoring is a plain `PATCH` with the old content, which itself snapshots the current state first, so nothing is ever lost.
+
+---
+
+### Trash
+
+Deleted notes land in `.trash/` under a timestamped name (`<utc-ts>__<filename>.md`), so deleting two notes with the same name never overwrites anything. In the UI: the 🗑 button at the bottom of the sidebar.
+
+#### `GET /api/trash`
+List trashed notes, newest first.
+
+```json
+[
+  { "name": "2026-06-10T08-00-00-654321__ideas.md", "original_filename": "ideas.md", "deleted_at": "2026-06-10T08:00:00", "preview": "First line" }
+]
+```
+
+`name` is the identifier for the other trash endpoints. Legacy (pre-timestamp) trash files are listed too, with `deleted_at` from file mtime.
+
+#### `GET /api/trash/{name}`
+View the content of a trashed note (frontmatter stripped).
+
+#### `POST /api/trash/{name}/restore`
+Move the note back. If a live note already has the name, the restored note gets a unique name (`ideas-2.md`) — **a restore never overwrites anything**. The note's history comes back with it. Returns the restored note object.
+
+#### `DELETE /api/trash/{name}`
+**Permanent** delete — removes both the file and its entire version history from disk. This is the way to truly destroy sensitive content (e.g. a note that contained a leaked API key): delete the note, then purge it from trash.
+
+Returns `{ "status": "purged", "name": "..." }`.
+
+---
+
 ### Health
 
 #### `GET /health`
 ```json
-{ "status": "ok", "notes_count": 42 }
+{ "status": "ok", "notes_count": 42, "version": "1.5" }
 ```
 
-No auth required.
+No auth required. `version` is handy for verifying what a client or server is actually running.
 
 ---
 
@@ -266,7 +331,9 @@ POST /api/notes/2026-04-04/rename
 - Use `#tags` in content to categorize notes — they are indexed automatically
 - `id` = filename without `.md` — use this in all endpoint paths
 - After a `rename`, the old `id` is gone — always use the new `id` returned in the response
-- Empty `PATCH` content moves the note to trash (no undo via API)
+- Empty `PATCH` content moves the note to trash — undo via `GET /api/trash` + `POST /api/trash/{name}/restore`
+- `GET /api/notes/{id}/history` shows earlier versions of a note; fetch one and `PATCH` it back to restore
+- `[[note-name]]` in content becomes a clickable wiki-link in the UI preview — useful for cross-referencing notes
 - `GET /api/notes/{id}/raw` returns the file with YAML frontmatter if you need structured metadata
 
 ### Example: Claude Code token creation
@@ -342,6 +409,23 @@ Group collapse state is saved per-group in `localStorage`. A **collapse all / ex
 
 To organize notes into a tag group, add `#tagname` anywhere in the note body. Notes with multiple tags appear in each relevant group.
 
+At the bottom of the sidebar: **🗑 Papperskorg** (opens the trash dialog) and the running app version.
+
+---
+
+## Markdown Preview & Wiki Links
+
+`Ctrl+M` (or the 👁 button) toggles a rendered Markdown preview of the current note.
+
+`[[note-name]]` in note text renders as a clickable link in the preview (matched case-insensitively against the note id, with or without `.md`). Clicking it opens that note and stays in preview mode, so you can browse linked notes like a wiki. Links to notes that don't exist are shown red/dashed. Implemented as a `marked` inline extension, so wiki links inside code blocks are left alone.
+
+---
+
+## Version History & Trash (UI)
+
+- **🕘 in the filename row** — lists earlier versions of the note (timestamp + preview). Click one to read it; **Återställ** saves it back as the current content (the replaced state is snapshotted first, so a restore is always undoable).
+- **🗑 at the bottom of the sidebar** — lists deleted notes. Click one to read it; **Återställ** moves it back (under a unique name if taken), **Radera permanent** destroys the note *and* its history after a confirming second click.
+
 ---
 
 ## Search
@@ -358,7 +442,40 @@ To organize notes into a tag group, add `#tagname` anywhere in the note body. No
 docker compose run --rm hexnotes pytest tests/ -v --tb=short
 ```
 
-58 tests covering auth, CRUD, search, rename, trash, token management, slug generation, frontmatter parsing, and filename sanitization. Frontend features (sidebar, palette, find bar) are pure client-side and do not require additional backend tests.
+86 tests across four files:
+
+| File | Covers |
+|------|--------|
+| `tests/test_unit.py` | Slug generation, tag extraction, frontmatter parsing, filename sanitization |
+| `tests/test_api.py` | Auth, CRUD, search, rename (incl. path traversal), tokens, health |
+| `tests/test_history.py` | Version history: snapshots, ordering, restore round-trip, rename migration, traversal rejection |
+| `tests/test_trash.py` | Trash: listing, restore (incl. collision), purge, history migration, legacy files, traversal rejection |
+
+Frontend features (sidebar, palette, find bar, preview, dialogs) are pure client-side and do not have automated tests.
+
+---
+
+## Security & Data Lifecycle
+
+**Deleted ≠ destroyed.** A deleted note lives on in `.trash/` and its version history in `.trash/.history/` — and anyone with a valid API token can list and restore it. Likewise, editing a secret *out* of a live note keeps it in the note's history. To truly destroy sensitive content (e.g. a note that contained an API key):
+
+1. Delete the note (moves it to trash, history included)
+2. `DELETE /api/trash/{name}` — or **Radera permanent** in the trash dialog — removes the file *and* its entire history from disk
+
+Also keep in mind that filesystem backups of `notes/` contain copies of everything, including trash and history.
+
+**Other guarantees:**
+- All filenames from clients are sanitized; history versions and trash names are strictly validated — no path traversal into or out of `notes/`
+- Nothing is ever overwritten: trash entries are timestamped, restores get a unique name on collision, history snapshots have microsecond timestamps
+- All tokens have full access (there are no scopes) — trash and history sit at the same trust level as the notes themselves
+
+---
+
+## Versioning
+
+`major.minor`, kept in `APP_VERSION` in `backend/main.py` — single source of truth, exposed via `GET /health` and shown in the sidebar. Bump **minor** for new features, **major** for breaking changes (API incompatibility or storage format changes requiring migration). Document each release in [CHANGELOG.md](CHANGELOG.md).
+
+The service worker cache name (`hexnotes-vN` in `static/sw.js`) is deliberately **not** tied to the app version: since the app shell is fetched network-first, deploys reach clients without cache bumps. Only bump it when the caching strategy itself changes.
 
 ---
 

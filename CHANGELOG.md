@@ -9,6 +9,17 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.13 – 2026-06-11
+
+- **Lucide-ikoner**: alla emoji-knappar (📌🕘👁🗑✎📅 m.fl.) ersatta med
+  inline-SVG från Lucide (ISC-licens) — konsekvent utseende på alla
+  plattformar, ärver färg via currentColor så hover/aktiv-tillstånd
+  färgas på riktigt. Ingen CDN i drift; path-data inbäddad i index.html
+- **Ny PWA-appikon**: violett gradient på rundad kvadrat med vitt
+  H-monogram (geometriskt ritat, inget typsnittsberoende) — ersätter
+  gamla hexagon/anteckningsdesignen. Service worker-cache bumpad till v4
+  så klienter hämtar de nya ikonerna
+
 ## 1.12 – 2026-06-11
 
 - **Tagg-autocomplete**: `#` följt av minst ett tecken föreslår befintliga

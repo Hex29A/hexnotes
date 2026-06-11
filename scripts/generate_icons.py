@@ -1,112 +1,83 @@
-from PIL import Image, ImageDraw, ImageFont
-import math
+"""Generate the PWA launcher icons (icon-192.png, icon-512.png).
+
+Design: violet vertical gradient on a rounded square, with a white "H"
+monogram built from geometric bars (no font dependency — letterforms drawn
+as rounded rectangles render identically in any build environment).
+Runs as a RUN step inside the Docker build.
+"""
+
+from PIL import Image, ImageDraw
 import os
 
 
-def hex_vertices(cx, cy, r):
-    """Return vertices of a regular hexagon centered at (cx, cy) with radius r."""
-    verts = []
-    for i in range(6):
-        angle = math.radians(60 * i - 30)  # flat-top hexagon
-        verts.append((cx + r * math.cos(angle), cy + r * math.sin(angle)))
-    return verts
+GRADIENT_TOP = (139, 92, 246)     # #8b5cf6
+GRADIENT_BOTTOM = (91, 33, 182)   # #5b21b6
+ACCENT = (216, 180, 254)          # #d8b4fe — soft highlight
+
+
+def rounded_mask(size, radius, supersample=4):
+    """Anti-aliased rounded-rectangle alpha mask."""
+    big = size * supersample
+    mask = Image.new("L", (big, big), 0)
+    d = ImageDraw.Draw(mask)
+    d.rounded_rectangle([0, 0, big - 1, big - 1], radius=radius * supersample, fill=255)
+    return mask.resize((size, size), Image.LANCZOS)
+
+
+def vertical_gradient(size, top, bottom):
+    img = Image.new("RGB", (size, size))
+    px = img.load()
+    for y in range(size):
+        t = y / (size - 1)
+        r = round(top[0] + (bottom[0] - top[0]) * t)
+        g = round(top[1] + (bottom[1] - top[1]) * t)
+        b = round(top[2] + (bottom[2] - top[2]) * t)
+        for x in range(size):
+            px[x, y] = (r, g, b)
+    return img
 
 
 def make_icon(size):
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
+    s = size
+    # Background: gradient clipped to a rounded square. The monogram stays
+    # well inside the 80% safe zone, so the icon works as maskable too.
+    radius = int(s / 4.4)
+    grad = vertical_gradient(s, GRADIENT_TOP, GRADIENT_BOTTOM)
+    mask = rounded_mask(s, radius)
 
-    cx, cy = size / 2, size / 2
-    pad = size * 0.06
-    s = size  # shorthand
+    img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+    img.paste(grad, (0, 0), mask)
 
-    # --- Background: purple rounded rectangle ---
-    corner_r = s // 6
-    draw.rounded_rectangle(
-        [pad, pad, s - pad, s - pad],
-        radius=corner_r,
-        fill="#7c3aed",
-    )
+    # "H" monogram — two vertical bars + crossbar, all rounded.
+    # Drawn supersampled for crisp edges at small sizes.
+    ss = 4
+    big = s * ss
+    glyph = Image.new("RGBA", (big, big), (0, 0, 0, 0))
+    d = ImageDraw.Draw(glyph)
 
-    # --- Hexagon outline (subtle, behind the note) ---
-    hex_r = s * 0.38
-    verts = hex_vertices(cx, cy, hex_r)
-    hex_line_w = max(2, s // 64)
-    for i in range(6):
-        draw.line(
-            [verts[i], verts[(i + 1) % 6]],
-            fill=(255, 255, 255, 50),  # very faint white
-            width=hex_line_w,
-        )
+    bar_w = big * 0.13
+    bar_h = big * 0.50
+    gap = big * 0.175          # horizontal distance from center to each bar center
+    cx, cy = big / 2, big / 2
+    r = bar_w / 2
 
-    # --- Note/document shape ---
-    # A page with a folded top-right corner
-    note_left = cx - s * 0.20
-    note_right = cx + s * 0.22
-    note_top = cy - s * 0.28
-    note_bottom = cy + s * 0.30
-    fold_size = s * 0.10  # size of the corner fold
+    left_x = cx - gap
+    right_x = cx + gap
+    top_y = cy - bar_h / 2
+    bottom_y = cy + bar_h / 2
 
-    # Page body (polygon without the folded corner)
-    page_points = [
-        (note_left, note_top),                        # top-left
-        (note_right - fold_size, note_top),            # top-right before fold
-        (note_right, note_top + fold_size),            # fold crease
-        (note_right, note_bottom),                     # bottom-right
-        (note_left, note_bottom),                      # bottom-left
-    ]
-    draw.polygon(page_points, fill=(255, 255, 255, 230))
+    white = (255, 255, 255, 255)
+    d.rounded_rectangle([left_x - bar_w / 2, top_y, left_x + bar_w / 2, bottom_y], radius=r, fill=white)
+    d.rounded_rectangle([right_x - bar_w / 2, top_y, right_x + bar_w / 2, bottom_y], radius=r, fill=white)
+    # Crossbar
+    cross_h = bar_w * 0.92
+    d.rounded_rectangle([left_x, cy - cross_h / 2, right_x, cy + cross_h / 2], radius=cross_h / 2, fill=white)
 
-    # Folded corner triangle (darker shade to show the fold)
-    fold_points = [
-        (note_right - fold_size, note_top),
-        (note_right, note_top + fold_size),
-        (note_right - fold_size, note_top + fold_size),
-    ]
-    draw.polygon(fold_points, fill=(200, 180, 240, 200))
+    glyph = glyph.resize((s, s), Image.LANCZOS)
+    img.alpha_composite(glyph)
 
-    # Fold edge line
-    fold_lw = max(1, s // 128)
-    draw.line(
-        [(note_right - fold_size, note_top),
-         (note_right - fold_size, note_top + fold_size),
-         (note_right, note_top + fold_size)],
-        fill=(124, 58, 237, 150),
-        width=fold_lw,
-    )
-
-    # --- Text lines on the note (simulating content) ---
-    line_color = (124, 58, 237, 160)
-    line_h = max(2, s // 80)
-    margin_l = note_left + s * 0.05
-    margin_r = note_right - s * 0.06
-    line_y_start = note_top + fold_size + s * 0.04
-    line_spacing = s * 0.065
-
-    # 4 lines of "text", varying widths
-    line_widths = [0.95, 0.75, 0.85, 0.55]
-    for i, w in enumerate(line_widths):
-        ly = line_y_start + i * line_spacing
-        lx_end = margin_l + (margin_r - margin_l) * w
-        draw.rounded_rectangle(
-            [margin_l, ly, lx_end, ly + line_h],
-            radius=line_h // 2,
-            fill=line_color,
-        )
-
-    # --- Small "#" tag chip at bottom of note ---
-    chip_y = note_bottom - s * 0.08
-    chip_x = margin_l
-    chip_w = s * 0.16
-    chip_h = s * 0.045
-    draw.rounded_rectangle(
-        [chip_x, chip_y, chip_x + chip_w, chip_y + chip_h],
-        radius=chip_h // 2,
-        fill=(168, 85, 247, 180),
-    )
-
-    # Convert to RGB with dark background for PNG
-    bg = Image.new("RGB", (size, size), "#0d0d0d")
+    # Flatten onto near-black so the PNG has no transparency surprises
+    bg = Image.new("RGB", (s, s), "#0d0d0d")
     bg.paste(img, (0, 0), img)
     return bg
 

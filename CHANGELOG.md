@@ -9,6 +9,16 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.11 – 2026-06-11
+
+- **Bakåtnavigering**: varje öppnad not får en hash-URL (#not-id) i
+  webbläsarhistoriken — telefonens bakåtgest, webbläsarens bakåt/framåt och
+  Alt+← går till föregående not istället för att lämna appen. Synlig
+  ←-knapp i filnamnsraden (visas bara när det finns något att gå tillbaka
+  till). Hash-URL:er fungerar som deep-links: ladda sidan med #not-id så
+  öppnas den noten direkt. Rename uppdaterar URL:en; borttagna noter i
+  historiken faller tillbaka till home-noten
+
 ## 1.10 – 2026-06-11
 
 - **[[ -autocomplete**: skriv `[[` i editorn så öppnas en dropdown som

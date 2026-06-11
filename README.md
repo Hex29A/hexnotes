@@ -397,6 +397,7 @@ The frontend keeps notes up to date via multiple mechanisms:
 | `Ctrl+B` | Toggle sidebar |
 | `Ctrl+M` | Toggle Markdown preview |
 | `Ctrl+D` | Today's note — opens (or creates) `YYYY-MM-DD.md` for today |
+| `Alt+←` | Back to the previously viewed note |
 | `Ctrl+Delete` | Delete active note (confirmation dialog) |
 | `Escape` | Close palette / find bar / clear search |
 | `Tab` | Insert 2 spaces in editor |
@@ -442,6 +443,17 @@ To edit, either:
 **Task checkboxes:** `- [ ]` task lines render as real, clickable checkboxes in the preview. Ticking one updates the corresponding line in the note and autosaves — todo lists work straight from the rendered view, which is especially handy on mobile. (Task syntax inside fenced code blocks is ignored.)
 
 **Today's note:** the 📅 topbar button (or `Ctrl+D`) opens today's `YYYY-MM-DD.md`, creating it first if it doesn't exist — quick daily capture.
+
+---
+
+## Navigation History & Deep Links
+
+Every opened note gets a hash URL (`#note-id`) pushed to browser history:
+
+- **Back** works everywhere: the ← button in the filename row, `Alt+←`, the browser's back/forward buttons, and the phone's back gesture (which steps back through notes instead of closing the PWA).
+- The ← button only appears when there is an in-app entry to return to, and `Alt+←` is guarded the same way — back navigation never leaves the app.
+- **Deep links:** loading the app with `#note-id` in the URL opens that note directly — bookmark or share links to specific notes.
+- Renaming a note updates the URL in place. If a note in the history has been renamed or deleted, navigating back to it lands on the home note instead.
 
 ---
 

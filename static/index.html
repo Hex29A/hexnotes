@@ -643,6 +643,15 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
   flex-shrink: 0;
 }
 #filename-preview-btn:hover { color: var(--accent); }
+#filename-back-btn {
+  padding: 8px 10px;
+  font-size: 16px;
+  cursor: pointer;
+  flex-shrink: 0;
+  visibility: hidden; /* shown once there is somewhere to go back to */
+  color: var(--text-muted);
+}
+#filename-back-btn:hover { color: var(--accent); }
 
 /* Active state for emoji toggle buttons — emojis ignore CSS color,
    so a visible chip (background + ring) marks the on-state */
@@ -980,6 +989,7 @@ mark {
     <!-- Editor area -->
     <div id="editor-area">
       <div id="filename-row">
+        <button id="filename-back-btn" title="Back (Alt+←)">←</button>
         <span id="filename-icon">📄</span>
         <span id="filename-display"></span>
         <input type="text" id="filename-input" spellcheck="false">
@@ -1198,11 +1208,14 @@ async function loadNotes() {
     if (!res.ok) throw new Error();
     notes = await res.json();
     renderNotesList();
-    // Restore active note — a note named home.md acts as the start page
+    // Restore active note — URL hash (deep link) wins, then home.md start page
     if (!activeNoteId && !isNew) {
+      const hashId = decodeURIComponent(location.hash.slice(1));
       const home = notes.find(n => n.id === 'home');
       const lastId = localStorage.getItem('hexnotes_lastNote');
-      if (home) {
+      if (hashId && notes.find(n => n.id === hashId)) {
+        openNote(hashId);
+      } else if (home) {
         openNote(home.id);
         setPreviewMode(true); // start page renders with clickable wiki-links
       } else if (lastId && notes.find(n => n.id === lastId)) {
@@ -1489,6 +1502,7 @@ function openNote(id) {
   clearTimeout(retryTimer);
   hideSaveIndicator();
 
+  pushNoteHash(id);
   renderNotesList();
 }
 
@@ -1578,6 +1592,7 @@ async function save(content) {
         isNew = false;
         newNoteFilename = null;
         localStorage.setItem('hexnotes_lastNote', created.id);
+        pushNoteHash(created.id);
         $filenameDisplay.textContent = created.filename;
       }
       pendingContent = null;
@@ -1729,6 +1744,55 @@ $preview.addEventListener('click', e => {
     if (isMobile) hideMobileList();
   }
 });
+
+// === SECTION: NOTE NAVIGATION HISTORY ===
+// Every opened note gets a hash URL (#note-id) pushed to browser history, so
+// the browser/phone back button steps back through visited notes instead of
+// leaving the app. navPos tracks our depth so the visible ← button only acts
+// when there is an in-app entry to return to.
+const $noteBackBtn = document.getElementById('filename-back-btn');
+let navPos = 0;
+let navHandlingPop = false;
+
+function updateBackBtn() {
+  $noteBackBtn.style.visibility = navPos > 0 ? 'visible' : 'hidden';
+}
+
+function pushNoteHash(id) {
+  if (navHandlingPop) return;
+  const target = '#' + encodeURIComponent(id);
+  if (location.hash === target) {
+    history.replaceState({ nav: navPos }, '', target);
+    return;
+  }
+  if (!location.hash) {
+    history.replaceState({ nav: navPos }, '', target);
+  } else {
+    navPos++;
+    history.pushState({ nav: navPos }, '', target);
+  }
+  updateBackBtn();
+}
+
+window.addEventListener('popstate', e => {
+  navPos = (e.state && typeof e.state.nav === 'number') ? e.state.nav : 0;
+  updateBackBtn();
+  const id = decodeURIComponent(location.hash.slice(1));
+  navHandlingPop = true;
+  try {
+    if (id && notes.find(n => n.id === id)) {
+      openNote(id);
+      if (isMobile) hideMobileList();
+    } else if (notes.find(n => n.id === 'home')) {
+      // Renamed/deleted note in history — land on the start page instead
+      openNote('home');
+    }
+  } finally {
+    navHandlingPop = false;
+  }
+});
+
+$noteBackBtn.addEventListener('click', () => { if (navPos > 0) history.back(); });
 
 // === SECTION: WIKILINK AUTOCOMPLETE ===
 // Typing "[[" in the editor opens a dropdown that filters note names as you
@@ -1971,6 +2035,7 @@ async function doRename() {
         newNoteFilename = null;
         noteHadContent = !!created.content.trim();
         localStorage.setItem('hexnotes_lastNote', created.id);
+        pushNoteHash(created.id);
         $filenameDisplay.textContent = created.filename;
         cancelRename();
         $editor.focus();
@@ -1996,6 +2061,7 @@ async function doRename() {
       const updated = await res.json();
       activeNoteId = updated.id;
       localStorage.setItem('hexnotes_lastNote', updated.id);
+      history.replaceState(history.state, '', '#' + encodeURIComponent(updated.id));
       $filenameDisplay.textContent = updated.filename;
       cancelRename();
       // Refresh list
@@ -2408,6 +2474,8 @@ document.addEventListener('keydown', e => {
   if (e.ctrlKey && e.key === 'm') { e.preventDefault(); togglePreview(); }
   // Ctrl+D → today's note
   if (e.ctrlKey && e.key === 'd') { e.preventDefault(); openToday(); }
+  // Alt+← → back to previous note (guarded so it never leaves the app)
+  if (e.altKey && e.key === 'ArrowLeft') { if (navPos > 0) { e.preventDefault(); history.back(); } }
   // Escape → close palette / find bar / clear search
   if (e.key === 'Escape') {
     if (document.getElementById('palette-overlay').classList.contains('active')) { closePalette(); return; }

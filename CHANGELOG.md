@@ -9,6 +9,12 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.9 – 2026-06-11
+
+- **Dubbelklick/dubbeltapp för redigering**: dubbelklick (desktop) eller
+  dubbeltapp (mobil) på den renderade texten växlar till editorn; länkar
+  undantagna — de navigerar som vanligt
+
 ## 1.8 – 2026-06-11
 
 - **Noter öppnas i preview-läge**: alla noter med innehåll renderas som

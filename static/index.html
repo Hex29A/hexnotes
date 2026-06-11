@@ -1687,6 +1687,20 @@ $preview.addEventListener('click', e => {
   }
 });
 
+// Double-click (desktop) / double-tap (mobile) on the rendered text switches
+// to editing. Links are exempt — they navigate.
+function previewToEdit(e) {
+  if (e.target.closest('a')) return;
+  setPreviewMode(false);
+}
+$preview.addEventListener('dblclick', previewToEdit);
+let lastPreviewTap = 0;
+$preview.addEventListener('touchend', e => {
+  const now = Date.now();
+  if (now - lastPreviewTap < 350) previewToEdit(e);
+  lastPreviewTap = now;
+});
+
 // === SECTION: PREVIEW ===
 function setPreviewMode(on) {
   isPreviewMode = on;

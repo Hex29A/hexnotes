@@ -428,7 +428,11 @@ No `home.md`? The app falls back to the previous behaviour (last-opened note, or
 
 ## Markdown Preview & Wiki Links
 
-`Ctrl+M` (or the 👁 button) toggles a rendered Markdown preview of the current note.
+Notes with content **open in preview mode** — the rendered Markdown is what you see first. Empty notes and new notes open straight in the editor.
+
+To edit, either:
+- `Ctrl+M` or the 👁 button — toggles between preview and editor
+- **Double-click** (desktop) or **double-tap** (mobile) anywhere in the rendered text — switches to the editor (links are exempt; they navigate)
 
 `[[note-name]]` in note text renders as a clickable link in the preview (matched case-insensitively against the note id, with or without `.md`). Clicking it opens that note and stays in preview mode, so you can browse linked notes like a wiki. Links to notes that don't exist are shown red/dashed. Implemented as a `marked` inline extension, so wiki links inside code blocks are left alone.
 

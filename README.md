@@ -2,6 +2,8 @@
 
 Self-hosted, lightweight note-taking app. Notes are stored as plain `.md` files on disk. No database. Exposes a REST API for browser, mobile (PWA), and AI-agent access.
 
+![HexNotes — rendered note with live task checkboxes, wiki links and backlinks](docs/screenshot.png)
+
 Current version: see `APP_VERSION` in `backend/main.py`, exposed via `GET /health` and shown in the topbar. Release notes in [CHANGELOG.md](CHANGELOG.md).
 
 ---

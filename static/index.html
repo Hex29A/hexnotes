@@ -1431,13 +1431,14 @@ function openNote(id) {
   $filenamePinBtn.title = note.pinned ? 'Unpin' : 'Pin to top';
   $filenamePinBtn.classList.toggle('active', note.pinned);
 
-  setPreviewMode(false);
   $editor.value = note.content;
   noteHadContent = !!note.content.trim();
   $emptyState.style.display = 'none';
   $editor.parentElement.style.display = 'flex';
   $filenameRow.style.display = 'flex';
-  $editor.focus();
+  // Notes open rendered; Ctrl+M or the eye toggles editing. Empty notes go
+  // straight to the editor — a blank preview is useless.
+  setPreviewMode(noteHadContent);
 
   pendingContent = null;
   clearTimeout(saveTimer);
@@ -1480,6 +1481,7 @@ function createNewNote() {
   $emptyState.style.display = 'none';
   $editor.parentElement.style.display = 'flex';
   $filenameRow.style.display = 'flex';
+  setPreviewMode(false); // an empty note has nothing to render — straight to editing
 
   renderNotesList();
 

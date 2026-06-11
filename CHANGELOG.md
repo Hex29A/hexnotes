@@ -9,6 +9,15 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.8 – 2026-06-11
+
+- **Noter öppnas i preview-läge**: alla noter med innehåll renderas som
+  markdown direkt vid öppning; Ctrl+M eller 👁 växlar till redigering.
+  Tomma noter öppnas direkt i editorn
+- **Buggfix**: "ny not" gjorde ingenting när aktiv not var i preview-läge —
+  `createNewNote()` återställde aldrig preview-flaggan, så editorn förblev
+  dold bakom gamla notens renderade HTML
+
 ## 1.7 – 2026-06-10
 
 - **Startsida via hem-not**: finns en not `home.md` öppnas den i preview-läge

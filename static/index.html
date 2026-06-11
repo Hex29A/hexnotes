@@ -130,6 +130,13 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
   white-space: nowrap;
 }
 #btn-new:hover { opacity: 0.9; }
+#btn-today {
+  background: none;
+  font-size: 16px;
+  padding: 4px 8px;
+  color: var(--text-muted);
+}
+#btn-today:hover { color: var(--accent); }
 #btn-sync {
   display: none;
   background: none;
@@ -595,6 +602,40 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
   color: var(--error-text);
   border-bottom: 1px dashed var(--error-text);
 }
+#preview input[type="checkbox"] {
+  cursor: pointer;
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+  margin-right: 6px;
+  vertical-align: middle;
+}
+#preview li:has(> input[type="checkbox"]) { list-style: none; margin-left: -20px; }
+
+/* [[ autocomplete dropdown */
+#wikilink-suggest {
+  display: none;
+  position: absolute;
+  z-index: 60;
+  min-width: 220px;
+  max-width: 360px;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+}
+.wikilink-suggest-item {
+  padding: 7px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wikilink-suggest-item:hover, .wikilink-suggest-item.selected { background: var(--bg-card-active); }
+.wikilink-suggest-item mark { background: none; color: var(--accent); font-weight: 700; }
 #filename-preview-btn {
   padding: 8px 10px;
   font-size: 14px;
@@ -922,6 +963,7 @@ mark {
       <button id="btn-search-clear" title="Clear search">✕</button>
     </div>
     <button id="btn-sync" title="Sync notes">↻</button>
+    <button id="btn-today" title="Today's note (Ctrl+D)">📅</button>
     <button id="btn-new" title="New note (Ctrl+N)">+ New</button>
   </div>
 
@@ -963,6 +1005,7 @@ mark {
       <div id="editor-wrap">
         <textarea id="editor" spellcheck="false"></textarea>
         <div id="preview"></div>
+        <div id="wikilink-suggest"></div>
         <span id="save-indicator"></span>
       </div>
       <div id="empty-state">Select or create a note</div>
@@ -1687,6 +1730,119 @@ $preview.addEventListener('click', e => {
   }
 });
 
+// === SECTION: WIKILINK AUTOCOMPLETE ===
+// Typing "[[" in the editor opens a dropdown that filters note names as you
+// type. Arrows navigate, Enter/Tab inserts, Escape closes.
+const $wlSuggest = document.getElementById('wikilink-suggest');
+let wlItems = [];
+let wlSelectedIdx = 0;
+
+function wlActiveQuery() {
+  const pos = $editor.selectionStart;
+  const m = /\[\[([^\[\]\n]*)$/.exec($editor.value.slice(0, pos));
+  return m ? { query: m[1], start: pos - m[1].length } : null;
+}
+
+function wlCaretCoords() {
+  // Mirror the textarea content up to the caret in a hidden div to find the
+  // caret's pixel position — textareas expose no caret coordinates natively.
+  const div = document.createElement('div');
+  const style = getComputedStyle($editor);
+  for (const prop of ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight',
+    'letterSpacing', 'padding', 'borderWidth', 'boxSizing', 'width']) {
+    div.style[prop] = style[prop];
+  }
+  div.style.position = 'absolute';
+  div.style.visibility = 'hidden';
+  div.style.whiteSpace = 'pre-wrap';
+  div.style.wordWrap = 'break-word';
+  div.textContent = $editor.value.slice(0, $editor.selectionStart);
+  const marker = document.createElement('span');
+  marker.textContent = '​';
+  div.appendChild(marker);
+  $editor.parentElement.appendChild(div);
+  const pos = {
+    top: marker.offsetTop - $editor.scrollTop,
+    left: marker.offsetLeft - $editor.scrollLeft,
+  };
+  div.remove();
+  return pos;
+}
+
+function wlClose() {
+  $wlSuggest.style.display = 'none';
+}
+
+function wlRender(query) {
+  const lq = query.toLowerCase();
+  wlItems = notes.filter(n => n.id.toLowerCase().includes(lq)).slice(0, 8);
+  if (!wlItems.length) { wlClose(); return; }
+  wlSelectedIdx = Math.min(wlSelectedIdx, wlItems.length - 1);
+  $wlSuggest.innerHTML = '';
+  wlItems.forEach((n, i) => {
+    const item = document.createElement('div');
+    item.className = 'wikilink-suggest-item' + (i === wlSelectedIdx ? ' selected' : '');
+    const idx = n.id.toLowerCase().indexOf(lq);
+    if (lq && idx >= 0) {
+      item.innerHTML = escapeHtml(n.id.slice(0, idx)) +
+        '<mark>' + escapeHtml(n.id.slice(idx, idx + lq.length)) + '</mark>' +
+        escapeHtml(n.id.slice(idx + lq.length));
+    } else {
+      item.textContent = n.id;
+    }
+    // mousedown, not click — keeps focus in the textarea
+    item.addEventListener('mousedown', e => { e.preventDefault(); wlInsert(n.id); });
+    $wlSuggest.appendChild(item);
+  });
+  const c = wlCaretCoords();
+  const lineH = parseFloat(getComputedStyle($editor).lineHeight) || 20;
+  $wlSuggest.style.left = Math.max(0, Math.min(c.left, $editor.clientWidth - 240)) + 'px';
+  $wlSuggest.style.top = (c.top + lineH + 4) + 'px';
+  $wlSuggest.style.display = 'block';
+}
+
+function wlInsert(id) {
+  const q = wlActiveQuery();
+  if (!q) { wlClose(); return; }
+  const pos = $editor.selectionStart;
+  const rest = $editor.value.slice(pos);
+  const closing = rest.startsWith(']]') ? '' : ']]';
+  $editor.value = $editor.value.slice(0, q.start) + id + closing + rest;
+  $editor.selectionStart = $editor.selectionEnd = q.start + id.length + 2;
+  wlClose();
+  $editor.focus();
+  $editor.dispatchEvent(new Event('input'));
+}
+
+$editor.addEventListener('input', () => {
+  const q = wlActiveQuery();
+  if (q) { wlSelectedIdx = 0; wlRender(q.query); } else wlClose();
+});
+$editor.addEventListener('blur', () => setTimeout(wlClose, 150));
+$editor.addEventListener('scroll', wlClose);
+
+// Capture phase on document — must run before the editor's own Tab handler
+// and the global shortcut handlers
+document.addEventListener('keydown', e => {
+  if (document.activeElement !== $editor || $wlSuggest.style.display !== 'block') return;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault(); e.stopImmediatePropagation();
+    wlSelectedIdx = Math.min(wlSelectedIdx + 1, wlItems.length - 1);
+    wlRender(wlActiveQuery()?.query ?? '');
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault(); e.stopImmediatePropagation();
+    wlSelectedIdx = Math.max(wlSelectedIdx - 1, 0);
+    wlRender(wlActiveQuery()?.query ?? '');
+  } else if (e.key === 'Enter' || e.key === 'Tab') {
+    e.preventDefault(); e.stopImmediatePropagation();
+    const sel = wlItems[wlSelectedIdx];
+    if (sel) wlInsert(sel.id);
+  } else if (e.key === 'Escape') {
+    e.preventDefault(); e.stopImmediatePropagation();
+    wlClose();
+  }
+}, true);
+
 // Double-click (desktop) / double-tap (mobile) on the rendered text switches
 // to editing. Links are exempt — they navigate.
 function previewToEdit(e) {
@@ -1707,6 +1863,7 @@ function setPreviewMode(on) {
   if (on) {
     const html = DOMPurify.sanitize(marked.parse($editor.value || ''));
     $preview.innerHTML = html;
+    enableTaskCheckboxes();
     $editor.style.display = 'none';
     $preview.style.display = 'block';
     $btnPreview.classList.add('active');
@@ -1723,6 +1880,38 @@ function setPreviewMode(on) {
 function togglePreview() {
   if (!activeNoteId && !isNew) return;
   setPreviewMode(!isPreviewMode);
+}
+
+// === SECTION: TASK CHECKBOXES IN PREVIEW ===
+// marked renders "- [ ]" as disabled checkboxes; make them live so todos can
+// be ticked straight from the rendered view. The nth rendered checkbox maps
+// to the nth task-list line in the source (fenced code blocks skipped).
+const TASK_LINE = /^((?:\s*>)*\s*(?:[-*+]|\d+[.)])\s+\[)([ xX])(\])/;
+
+function enableTaskCheckboxes() {
+  $preview.querySelectorAll('li > input[type="checkbox"]').forEach((box, i) => {
+    box.disabled = false;
+    box.addEventListener('change', () => toggleTaskLine(i, box.checked));
+  });
+}
+
+function toggleTaskLine(index, checked) {
+  const lines = $editor.value.split('\n');
+  let inFence = false, n = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\s*(```|~~~)/.test(lines[i])) { inFence = !inFence; continue; }
+    if (inFence) continue;
+    if (!TASK_LINE.test(lines[i])) continue;
+    n++;
+    if (n !== index) continue;
+    lines[i] = lines[i].replace(TASK_LINE, '$1' + (checked ? 'x' : ' ') + '$3');
+    $editor.value = lines.join('\n');
+    pendingContent = $editor.value;
+    noteHadContent = true;
+    clearTimeout(saveTimer);
+    if (isOnline) saveTimer = setTimeout(() => save($editor.value), 600);
+    return;
+  }
 }
 
 $btnPreview.addEventListener('click', togglePreview);
@@ -2217,6 +2406,8 @@ document.addEventListener('keydown', e => {
   if (e.ctrlKey && e.key === 'Delete') { e.preventDefault(); confirmDelete(); }
   // Ctrl+M → toggle markdown preview
   if (e.ctrlKey && e.key === 'm') { e.preventDefault(); togglePreview(); }
+  // Ctrl+D → today's note
+  if (e.ctrlKey && e.key === 'd') { e.preventDefault(); openToday(); }
   // Escape → close palette / find bar / clear search
   if (e.key === 'Escape') {
     if (document.getElementById('palette-overlay').classList.contains('active')) { closePalette(); return; }
@@ -2235,6 +2426,23 @@ document.addEventListener('keydown', e => {
 // === SECTION: NEW NOTE BUTTONS ===
 $btnNew.addEventListener('click', createNewNote);
 $fab.addEventListener('click', createNewNote);
+
+// === SECTION: TODAY'S NOTE ===
+function openToday() {
+  const today = new Date().toLocaleDateString('sv-SE'); // YYYY-MM-DD, local time
+  const existing = notes.find(n => n.id === today);
+  if (existing) {
+    openNote(existing.id);
+    if (isMobile) hideMobileList();
+    return;
+  }
+  createNewNote();
+  cancelRename(); // createNewNote opens the filename field — the name is already decided
+  newNoteFilename = today + '.md';
+  $filenameDisplay.textContent = newNoteFilename;
+  $editor.focus();
+}
+document.getElementById('btn-today').addEventListener('click', openToday);
 
 // === SECTION: OFFLINE HANDLING ===
 function goOffline() {

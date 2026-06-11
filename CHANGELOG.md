@@ -9,6 +9,17 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.10 – 2026-06-11
+
+- **[[ -autocomplete**: skriv `[[` i editorn så öppnas en dropdown som
+  filtrerar notnamn medan du skriver; piltangenter navigerar, Enter/Tab
+  infogar länken (med avslutande `]]`), Escape stänger
+- **Klickbara checkboxar i preview**: `- [ ]`-rader renderas som riktiga
+  checkboxar som kan bockas av direkt i läsläget — ändringen sparas till
+  filen (n:te checkboxen mappas till n:te task-raden, kodblock hoppas över)
+- **Dagens not**: 📅-knapp i topbaren (även mobil) och `Ctrl+D` öppnar
+  dagens `YYYY-MM-DD.md`, eller skapar den om den inte finns
+
 ## 1.9 – 2026-06-11
 
 - **Dubbelklick/dubbeltapp för redigering**: dubbelklick (desktop) eller

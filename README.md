@@ -396,6 +396,7 @@ The frontend keeps notes up to date via multiple mechanisms:
 | `Ctrl+F` | Find in current note (match navigation with ↑↓, Shift+Enter/Enter) |
 | `Ctrl+B` | Toggle sidebar |
 | `Ctrl+M` | Toggle Markdown preview |
+| `Ctrl+D` | Today's note — opens (or creates) `YYYY-MM-DD.md` for today |
 | `Ctrl+Delete` | Delete active note (confirmation dialog) |
 | `Escape` | Close palette / find bar / clear search |
 | `Tab` | Insert 2 spaces in editor |
@@ -435,6 +436,12 @@ To edit, either:
 - **Double-click** (desktop) or **double-tap** (mobile) anywhere in the rendered text — switches to the editor (links are exempt; they navigate)
 
 `[[note-name]]` in note text renders as a clickable link in the preview (matched case-insensitively against the note id, with or without `.md`). Clicking it opens that note and stays in preview mode, so you can browse linked notes like a wiki. Links to notes that don't exist are shown red/dashed. Implemented as a `marked` inline extension, so wiki links inside code blocks are left alone.
+
+**Autocomplete:** typing `[[` in the editor opens a dropdown that filters note names as you type. Arrow keys navigate, `Enter`/`Tab` inserts the link (closing `]]` included), `Escape` closes. Clicking a suggestion also inserts it.
+
+**Task checkboxes:** `- [ ]` task lines render as real, clickable checkboxes in the preview. Ticking one updates the corresponding line in the note and autosaves — todo lists work straight from the rendered view, which is especially handy on mobile. (Task syntax inside fenced code blocks is ignored.)
+
+**Today's note:** the 📅 topbar button (or `Ctrl+D`) opens today's `YYYY-MM-DD.md`, creating it first if it doesn't exist — quick daily capture.
 
 ---
 

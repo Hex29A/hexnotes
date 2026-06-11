@@ -426,6 +426,8 @@ If a note named `home.md` exists, the app opens it **in preview mode** on startu
 
 No `home.md`? The app falls back to the previous behaviour (last-opened note, or the most recent one).
 
+On a **fresh install** (completely empty notes directory) a starter `home.md` is seeded automatically at startup with a short feature guide — so a newly cloned instance opens on a start page rather than an empty list. It is never created or overwritten if any note already exists.
+
 ---
 
 ## Markdown Preview & Wiki Links

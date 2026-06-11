@@ -130,3 +130,21 @@ def test_sanitize_strips_path_traversal():
 
 def test_sanitize_strips_leading_dot():
     assert not sanitize_filename(".hidden").startswith(".")
+
+
+# === Startup seeding ===
+
+def test_startup_seeds_home_when_empty(tmp_notes):
+    import asyncio
+    from backend import main
+    asyncio.run(main.startup())
+    assert (tmp_notes / "home.md").exists()
+    assert "home" in main.notes_index
+
+
+def test_startup_leaves_existing_notes_alone(tmp_notes):
+    import asyncio
+    from backend import main
+    (tmp_notes / "existing.md").write_text("hello", encoding="utf-8")
+    asyncio.run(main.startup())
+    assert not (tmp_notes / "home.md").exists()

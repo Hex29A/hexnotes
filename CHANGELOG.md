@@ -11,6 +11,11 @@ till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1
 
 ## 1.11 – 2026-06-11
 
+- **Seed-not vid tom installation**: en helt tom notes-mapp får en
+  förifylld `home.md` (välkomsttext + funktionsguide) vid uppstart, så
+  nya installationer öppnar på en startsida istället för en tom lista.
+  Rörs aldrig om det redan finns noter
+
 - **Bakåtnavigering**: varje öppnad not får en hash-URL (#not-id) i
   webbläsarhistoriken — telefonens bakåtgest, webbläsarens bakåt/framåt och
   Alt+← går till föregående not istället för att lämna appen. Synlig

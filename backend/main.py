@@ -391,6 +391,25 @@ def _unique_filename(desired: str) -> str:
 # Startup
 # ---------------------------------------------------------------------------
 
+# Seeded into a completely empty notes directory so a fresh install opens on
+# a start page instead of an empty list. Never touched if any note exists.
+HOME_SEED = """# Welcome to HexNotes
+
+This is your **home note** — it opens every time you start the app.
+Make it yours: fill it with [[wiki-links]] to your important notes.
+
+## Quick start
+
+- **+ New** (or `Ctrl+N`) creates a note. `#tags` anywhere in the text become sidebar groups.
+- **📅** (or `Ctrl+D`) opens today's daily note.
+- Notes open rendered — **double-click** (or `Ctrl+M`) to edit.
+- Type `[[` in the editor to link to another note, with autocomplete.
+- Task lists are live in the rendered view:
+  - [ ] try ticking this checkbox
+- **←** in the note header (or the browser/phone back button) returns to the previous note.
+"""
+
+
 @app.on_event("startup")
 async def startup():
     if not TOKENS_FILE.exists():
@@ -400,6 +419,11 @@ async def startup():
             pass
     _load_tokens_from_file()
     TRASH_PATH.mkdir(parents=True, exist_ok=True)
+    if not any(NOTES_PATH.glob("*.md")):
+        try:
+            (NOTES_PATH / "home.md").write_text(HOME_SEED, encoding="utf-8")
+        except Exception:
+            pass
     build_index()
 
 

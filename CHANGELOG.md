@@ -9,6 +9,15 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.12 – 2026-06-11
+
+- **Tagg-autocomplete**: `#` följt av minst ett tecken föreslår befintliga
+  taggar (minimum ett tecken så den inte triggar på markdown-rubriker);
+  samma dropdown och tangentstyrning som [[-autocomplete
+- **Backlinks**: diskret rad längst ner i preview — "Linked from: x · y" —
+  med klickbara länkar till noter som [[länkar]] hit; visas bara när minst
+  en annan not länkar till den aktuella
+
 ## 1.11 – 2026-06-11
 
 - **Seed-not vid tom installation**: en helt tom notes-mapp får en

@@ -636,6 +636,16 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
 }
 .wikilink-suggest-item:hover, .wikilink-suggest-item.selected { background: var(--bg-card-active); }
 .wikilink-suggest-item mark { background: none; color: var(--accent); font-weight: 700; }
+
+/* Backlinks footer — deliberately discreet */
+#backlinks {
+  margin-top: 28px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+#backlinks a.wiki-link { font-size: 12px; border-bottom-style: dotted; }
 #filename-preview-btn {
   padding: 8px 10px;
   font-size: 14px;
@@ -1794,17 +1804,28 @@ window.addEventListener('popstate', e => {
 
 $noteBackBtn.addEventListener('click', () => { if (navPos > 0) history.back(); });
 
-// === SECTION: WIKILINK AUTOCOMPLETE ===
-// Typing "[[" in the editor opens a dropdown that filters note names as you
-// type. Arrows navigate, Enter/Tab inserts, Escape closes.
+// === SECTION: EDITOR AUTOCOMPLETE (wiki links + tags) ===
+// Typing "[[" opens a dropdown that filters note names; typing "#" plus at
+// least one character suggests existing tags (the one-character minimum keeps
+// it from firing on markdown headings). Arrows navigate, Enter/Tab inserts,
+// Escape closes.
 const $wlSuggest = document.getElementById('wikilink-suggest');
 let wlItems = [];
 let wlSelectedIdx = 0;
+let wlMode = 'wiki';
+
+function allTags() {
+  return [...new Set(notes.flatMap(n => n.tags || []))].sort();
+}
 
 function wlActiveQuery() {
   const pos = $editor.selectionStart;
-  const m = /\[\[([^\[\]\n]*)$/.exec($editor.value.slice(0, pos));
-  return m ? { query: m[1], start: pos - m[1].length } : null;
+  const before = $editor.value.slice(0, pos);
+  let m = /\[\[([^\[\]\n]*)$/.exec(before);
+  if (m) return { mode: 'wiki', query: m[1], start: pos - m[1].length };
+  m = /(?:^|\s)#([\w\-åäöÅÄÖ]+)$/.exec(before);
+  if (m) return { mode: 'tag', query: m[1], start: pos - m[1].length };
+  return null;
 }
 
 function wlCaretCoords() {
@@ -1839,23 +1860,26 @@ function wlClose() {
 
 function wlRender(query) {
   const lq = query.toLowerCase();
-  wlItems = notes.filter(n => n.id.toLowerCase().includes(lq)).slice(0, 8);
+  const source = wlMode === 'tag' ? allTags() : notes.map(n => n.id);
+  wlItems = source.filter(s => s.toLowerCase().includes(lq)).slice(0, 8);
   if (!wlItems.length) { wlClose(); return; }
   wlSelectedIdx = Math.min(wlSelectedIdx, wlItems.length - 1);
   $wlSuggest.innerHTML = '';
-  wlItems.forEach((n, i) => {
+  wlItems.forEach((s, i) => {
     const item = document.createElement('div');
     item.className = 'wikilink-suggest-item' + (i === wlSelectedIdx ? ' selected' : '');
-    const idx = n.id.toLowerCase().indexOf(lq);
+    const label = wlMode === 'tag' ? '#' + s : s;
+    const idx = s.toLowerCase().indexOf(lq);
     if (lq && idx >= 0) {
-      item.innerHTML = escapeHtml(n.id.slice(0, idx)) +
-        '<mark>' + escapeHtml(n.id.slice(idx, idx + lq.length)) + '</mark>' +
-        escapeHtml(n.id.slice(idx + lq.length));
+      const off = wlMode === 'tag' ? 1 : 0;
+      item.innerHTML = escapeHtml(label.slice(0, idx + off)) +
+        '<mark>' + escapeHtml(label.slice(idx + off, idx + off + lq.length)) + '</mark>' +
+        escapeHtml(label.slice(idx + off + lq.length));
     } else {
-      item.textContent = n.id;
+      item.textContent = label;
     }
     // mousedown, not click — keeps focus in the textarea
-    item.addEventListener('mousedown', e => { e.preventDefault(); wlInsert(n.id); });
+    item.addEventListener('mousedown', e => { e.preventDefault(); wlInsert(s); });
     $wlSuggest.appendChild(item);
   });
   const c = wlCaretCoords();
@@ -1865,14 +1889,22 @@ function wlRender(query) {
   $wlSuggest.style.display = 'block';
 }
 
-function wlInsert(id) {
+function wlInsert(text) {
   const q = wlActiveQuery();
   if (!q) { wlClose(); return; }
   const pos = $editor.selectionStart;
   const rest = $editor.value.slice(pos);
-  const closing = rest.startsWith(']]') ? '' : ']]';
-  $editor.value = $editor.value.slice(0, q.start) + id + closing + rest;
-  $editor.selectionStart = $editor.selectionEnd = q.start + id.length + 2;
+  let inserted, caret;
+  if (q.mode === 'wiki') {
+    const closing = rest.startsWith(']]') ? '' : ']]';
+    inserted = text + closing;
+    caret = q.start + text.length + 2;
+  } else {
+    inserted = text;
+    caret = q.start + text.length;
+  }
+  $editor.value = $editor.value.slice(0, q.start) + inserted + rest;
+  $editor.selectionStart = $editor.selectionEnd = caret;
   wlClose();
   $editor.focus();
   $editor.dispatchEvent(new Event('input'));
@@ -1880,7 +1912,7 @@ function wlInsert(id) {
 
 $editor.addEventListener('input', () => {
   const q = wlActiveQuery();
-  if (q) { wlSelectedIdx = 0; wlRender(q.query); } else wlClose();
+  if (q) { wlMode = q.mode; wlSelectedIdx = 0; wlRender(q.query); } else wlClose();
 });
 $editor.addEventListener('blur', () => setTimeout(wlClose, 150));
 $editor.addEventListener('scroll', wlClose);
@@ -1900,7 +1932,7 @@ document.addEventListener('keydown', e => {
   } else if (e.key === 'Enter' || e.key === 'Tab') {
     e.preventDefault(); e.stopImmediatePropagation();
     const sel = wlItems[wlSelectedIdx];
-    if (sel) wlInsert(sel.id);
+    if (sel) wlInsert(sel);
   } else if (e.key === 'Escape') {
     e.preventDefault(); e.stopImmediatePropagation();
     wlClose();
@@ -1928,6 +1960,7 @@ function setPreviewMode(on) {
     const html = DOMPurify.sanitize(marked.parse($editor.value || ''));
     $preview.innerHTML = html;
     enableTaskCheckboxes();
+    renderBacklinks();
     $editor.style.display = 'none';
     $preview.style.display = 'block';
     $btnPreview.classList.add('active');
@@ -1944,6 +1977,24 @@ function setPreviewMode(on) {
 function togglePreview() {
   if (!activeNoteId && !isNew) return;
   setPreviewMode(!isPreviewMode);
+}
+
+// === SECTION: BACKLINKS ===
+// A muted footer line in the preview listing notes that [[link]] here.
+// Deliberately unobtrusive: only shown in preview mode and only when at
+// least one other note links to this one.
+function renderBacklinks() {
+  if (!activeNoteId) return;
+  const re = new RegExp(
+    '\\[\\[\\s*' + activeNoteId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:\\.md)?\\s*\\]\\]', 'i');
+  const sources = notes.filter(n => n.id !== activeNoteId && re.test(n.content));
+  if (!sources.length) return;
+  const div = document.createElement('div');
+  div.id = 'backlinks';
+  div.innerHTML = 'Linked from: ' + sources.map(n =>
+    `<a href="#" class="wiki-link" data-wiki="${escapeHtml(n.id).replace(/"/g, '&quot;')}">${escapeHtml(n.id)}</a>`
+  ).join(' · ');
+  $preview.appendChild(div);
 }
 
 // === SECTION: TASK CHECKBOXES IN PREVIEW ===

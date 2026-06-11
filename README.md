@@ -440,7 +440,9 @@ To edit, either:
 
 `[[note-name]]` in note text renders as a clickable link in the preview (matched case-insensitively against the note id, with or without `.md`). Clicking it opens that note and stays in preview mode, so you can browse linked notes like a wiki. Links to notes that don't exist are shown red/dashed. Implemented as a `marked` inline extension, so wiki links inside code blocks are left alone.
 
-**Autocomplete:** typing `[[` in the editor opens a dropdown that filters note names as you type. Arrow keys navigate, `Enter`/`Tab` inserts the link (closing `]]` included), `Escape` closes. Clicking a suggestion also inserts it.
+**Autocomplete:** typing `[[` in the editor opens a dropdown that filters note names as you type. Arrow keys navigate, `Enter`/`Tab` inserts the link (closing `]]` included), `Escape` closes. Clicking a suggestion also inserts it. Typing `#` plus at least one character suggests existing tags the same way (the one-character minimum keeps it from firing on markdown headings).
+
+**Backlinks:** a muted "Linked from: …" footer at the bottom of the preview lists notes that `[[link]]` to the current one, with clickable links. Only shown when at least one backlink exists.
 
 **Task checkboxes:** `- [ ]` task lines render as real, clickable checkboxes in the preview. Ticking one updates the corresponding line in the note and autosaves — todo lists work straight from the rendered view, which is especially handy on mobile. (Task syntax inside fenced code blocks is ignored.)
 

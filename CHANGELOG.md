@@ -9,6 +9,14 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.14 – 2026-06-11
+
+- **Tematoggle**: diskret knapp längst ner i sidofältet (bredvid Trash)
+  som cyklar auto → mörk → ljus. Auto följer systemet (som tidigare),
+  de andra två låser temat via data-theme-attribut. Valet sparas i
+  localStorage och appliceras före första render (ingen blink).
+  theme-color-metataggen (PWA-statusfältet på Android) följer med
+
 ## 1.13 – 2026-06-11
 
 - **Lucide-ikoner**: alla emoji-knappar (📌🕘👁🗑✎📅 m.fl.) ersatta med

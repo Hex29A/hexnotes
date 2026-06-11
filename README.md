@@ -418,7 +418,7 @@ Group collapse state is saved per-group in `localStorage`. A **collapse all / ex
 
 To organize notes into a tag group, add `#tagname` anywhere in the note body. Notes with multiple tags appear in each relevant group.
 
-At the bottom of the sidebar: **🗑 Trash** opens the trash dialog. The running app version is shown in the topbar next to the HexNotes title.
+At the bottom of the sidebar: **🗑 Trash** opens the trash dialog, and a discreet **theme toggle** cycles auto → dark → light (auto follows the system preference; the choice is saved in `localStorage` and applied before first paint). The running app version is shown in the topbar next to the HexNotes title.
 
 ---
 

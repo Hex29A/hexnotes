@@ -6,6 +6,13 @@
 <title>HexNotes</title>
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#a855f7">
+<script>
+// Apply a pinned theme before first paint to avoid a flash of the wrong mode
+try {
+  const t = localStorage.getItem('hexnotes_theme');
+  if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
+} catch (e) {}
+</script>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="icon" href="/icon-192.png">
@@ -34,8 +41,10 @@
   --font: 'JetBrains Mono', Consolas, 'Courier New', monospace;
 }
 
+/* Auto mode (no data-theme attribute) follows the system preference;
+   data-theme="dark"/"light" pins the theme regardless of the system. */
 @media (prefers-color-scheme: light) {
-  :root {
+  :root:not([data-theme="dark"]) {
     --bg-primary: #f5f5f5;
     --bg-sidebar: #ebebeb;
     --bg-card: #e0e0e0;
@@ -50,6 +59,21 @@
     --offline-bg: #fef9c3;
     --offline-text: #854d0e;
   }
+}
+:root[data-theme="light"] {
+  --bg-primary: #f5f5f5;
+  --bg-sidebar: #ebebeb;
+  --bg-card: #e0e0e0;
+  --bg-card-active: #d4d4d4;
+  --text-primary: #1a1a1a;
+  --text-muted: #888888;
+  --accent: #7c3aed;
+  --accent-dim: #ddd6fe;
+  --border: #cccccc;
+  --error-bg: #fee2e2;
+  --error-text: #b91c1c;
+  --offline-bg: #fef9c3;
+  --offline-text: #854d0e;
 }
 
 html, body {
@@ -896,7 +920,17 @@ svg.lucide {
 
 
 /* Trash specifics */
-#trash-bar { padding: 8px 10px 14px; }
+#trash-bar {
+  padding: 8px 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+#btn-theme {
+  color: var(--text-muted);
+  padding: 4px 6px;
+}
+#btn-theme:hover { color: var(--accent); }
 #app-version { font-size: 10px; color: var(--text-muted); font-weight: 400; }
 #btn-trash {
   font-size: 11px;
@@ -1016,7 +1050,10 @@ mark {
       <div id="tag-filters"></div>
       <div id="collapse-all-bar"><button id="btn-collapse-all">▾ collapse all</button></div>
       <div id="notes-list"></div>
-      <div id="trash-bar"><button id="btn-trash">🗑 Trash</button></div>
+      <div id="trash-bar">
+        <button id="btn-trash">🗑 Trash</button>
+        <button id="btn-theme" title="Theme"></button>
+      </div>
     </div>
 
     <!-- Editor area -->
@@ -2836,6 +2873,9 @@ const ICONS = {
   'history': '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /> <path d="M3 3v5h5" /> <path d="M12 7v5l4 2" />',
   'inbox': '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12" /> <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />',
   'menu': '<path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" />',
+  'monitor': '<rect width="20" height="14" x="2" y="3" rx="2" /> <line x1="8" x2="16" y1="21" y2="21" /> <line x1="12" x2="12" y1="17" y2="21" />',
+  'moon': '<path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" />',
+  'sun': '<circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" />',
   'pencil': '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" /> <path d="m15 5 4 4" />',
   'pin': '<path d="M12 17v5" /> <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />',
   'plus': '<path d="M5 12h14" /> <path d="M12 5v14" />',
@@ -2873,6 +2913,38 @@ function icon(name) {
   document.getElementById('btn-new').innerHTML = icon('plus') + '<span>New</span>';
   $btnCollapseAll.innerHTML = icon('chevrons-down-up') + '<span>collapse all</span>';
 })();
+
+// === SECTION: THEME TOGGLE ===
+// Cycles auto → dark → light. Auto (default) follows the system; the other
+// two pin the theme via data-theme on <html>. A head script applies the
+// pinned mode before first paint.
+const $btnTheme = document.getElementById('btn-theme');
+const THEME_ORDER = ['auto', 'dark', 'light'];
+const THEME_ICONS = { auto: 'monitor', dark: 'moon', light: 'sun' };
+let themeMode = localStorage.getItem('hexnotes_theme');
+if (!THEME_ORDER.includes(themeMode)) themeMode = 'auto';
+
+function applyTheme(mode) {
+  if (mode === 'auto') document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.setAttribute('data-theme', mode);
+  $btnTheme.innerHTML = icon(THEME_ICONS[mode]);
+  $btnTheme.title = 'Theme: ' + mode;
+  const dark = mode === 'dark' ||
+    (mode === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', dark ? '#0d0d0d' : '#f5f5f5');
+}
+
+applyTheme(themeMode);
+$btnTheme.addEventListener('click', () => {
+  themeMode = THEME_ORDER[(THEME_ORDER.indexOf(themeMode) + 1) % THEME_ORDER.length];
+  localStorage.setItem('hexnotes_theme', themeMode);
+  applyTheme(themeMode);
+});
+// Keep the PWA status-bar color in sync when the system flips in auto mode
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  if (themeMode === 'auto') applyTheme('auto');
+});
 
 // === SECTION: PWA REGISTRATION ===
 if ('serviceWorker' in navigator) {

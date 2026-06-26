@@ -1066,6 +1066,7 @@ mark {
         <button id="filename-edit-btn" title="Rename">✎</button>
         <button id="filename-pin-btn" title="Pin to top">📌</button>
         <button id="filename-history-btn" title="Version history">🕘</button>
+        <button id="filename-checklist-btn" title="Infoga checklista">☑</button>
         <button id="filename-preview-btn" title="Preview (Ctrl+M)">👁</button>
         <button id="filename-delete-btn" title="Delete note">🗑</button>
       </div>
@@ -2563,7 +2564,7 @@ $btnSearchClear.addEventListener('click', () => {
   loadNotes();
 });
 
-// === SECTION: TAB HANDLING ===
+// === SECTION: TAB HANDLING + LIST AUTO-CONTINUE ===
 $editor.addEventListener('keydown', e => {
   if (e.key === 'Tab') {
     e.preventDefault();
@@ -2572,8 +2573,53 @@ $editor.addEventListener('keydown', e => {
     $editor.value = $editor.value.substring(0, start) + '  ' + $editor.value.substring(end);
     $editor.selectionStart = $editor.selectionEnd = start + 2;
     $editor.dispatchEvent(new Event('input'));
+    return;
+  }
+  // Enter på en checkbox-/punktrad fortsätter listan automatiskt;
+  // Enter på en tom punkt avslutar listan (tar bort markeringen).
+  if (e.key === 'Enter' && !e.shiftKey && $editor.selectionStart === $editor.selectionEnd) {
+    const val = $editor.value, pos = $editor.selectionStart;
+    const lineStart = val.lastIndexOf('\n', pos - 1) + 1;
+    const line = val.slice(lineStart, pos);
+    const cb = line.match(/^(\s*)[-*+]\s+\[[ xX]\]\s*(.*)$/);
+    const bul = line.match(/^(\s*)([-*+])\s+(.*)$/);
+    const empty = () => {
+      e.preventDefault();
+      $editor.value = val.slice(0, lineStart) + val.slice(pos);
+      $editor.selectionStart = $editor.selectionEnd = lineStart;
+      $editor.dispatchEvent(new Event('input'));
+    };
+    const cont = (marker) => {
+      e.preventDefault();
+      const ins = '\n' + marker;
+      $editor.value = val.slice(0, pos) + ins + val.slice(pos);
+      $editor.selectionStart = $editor.selectionEnd = pos + ins.length;
+      $editor.dispatchEvent(new Event('input'));
+    };
+    if (cb) { cb[2].trim() === '' ? empty() : cont(cb[1] + '- [ ] '); }
+    else if (bul) { bul[3].trim() === '' ? empty() : cont(bul[1] + bul[2] + ' '); }
   }
 });
+
+// Knapp: gör aktuell rad (eller varje markerad rad) till en checkruta.
+function insertChecklist() {
+  if (isPreviewMode) setPreviewMode(false);
+  const val = $editor.value;
+  const s = $editor.selectionStart, en = $editor.selectionEnd;
+  const lineStart = val.lastIndexOf('\n', s - 1) + 1;
+  let lineEnd = val.indexOf('\n', en); if (lineEnd === -1) lineEnd = val.length;
+  const newBlock = val.slice(lineStart, lineEnd).split('\n').map((l) => {
+    const m = l.match(/^(\s*)(.*)$/), indent = m[1], rest = m[2];
+    if (/^[-*+]\s+\[[ xX]\]/.test(rest)) return l;       // redan checkruta
+    return indent + '- [ ] ' + rest;
+  }).join('\n');
+  $editor.value = val.slice(0, lineStart) + newBlock + val.slice(lineEnd);
+  const end = lineStart + newBlock.length;
+  $editor.focus();
+  $editor.selectionStart = $editor.selectionEnd = end;
+  $editor.dispatchEvent(new Event('input'));
+}
+document.getElementById('filename-checklist-btn').addEventListener('click', insertChecklist);
 
 // === SECTION: KEYBOARD SHORTCUTS ===
 document.addEventListener('keydown', e => {

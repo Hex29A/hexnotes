@@ -9,6 +9,13 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.15 – 2026-06-26
+
+- **Checklista i editorn**: ny ☑-knapp i filnamnsraden som lägger `- [ ] ` på
+  aktuell rad, eller på varje markerad rad om flera är markerade.
+- **Auto-fortsätt på lista**: Enter på en checkbox- eller punktrad skapar nästa
+  punkt automatiskt; Enter på en tom punkt avslutar listan.
+
 ## 1.14 – 2026-06-11
 
 - **Tematoggle**: diskret knapp längst ner i sidofältet (bredvid Trash)

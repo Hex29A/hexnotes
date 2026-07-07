@@ -1304,6 +1304,37 @@ async function loadNotes() {
   }
 }
 
+// === SECTION: AUTO-REFRESH ===
+// Fillistan hålls färsk utan manuell reload: poll var 30:e sekund (bara när
+// fliken är synlig) + direkt när fliken får fokus igen. Ritar bara om när
+// listan faktiskt ändrats, så scrolläge och pågående redigering störs inte.
+function notesSignature(list) {
+  return JSON.stringify(list.map(n => [n.id, n.updated_at, n.pinned]));
+}
+
+async function pollNotes() {
+  if (document.hidden || !apiToken) return;
+  try {
+    const q = $searchInput.value.trim();
+    let url = '/api/notes?limit=200';
+    if (q) url += `&q=${encodeURIComponent(q)}`;
+    const res = await apiFetch(url);
+    if (!res.ok) return;
+    const fresh = await res.json();
+    if (notesSignature(fresh) !== notesSignature(notes)) {
+      notes = fresh;
+      renderNotesList();
+    }
+  } catch {
+    // Offline — nästa poll försöker igen
+  }
+}
+
+setInterval(pollNotes, 30000);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) pollNotes();
+});
+
 function escapeHtml(str) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

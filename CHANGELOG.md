@@ -9,6 +9,13 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.16 – 2026-07-07
+
+- **Auto-uppdaterad fillista**: sidofältet pollar `/api/notes` var 30:e sekund
+  (bara när fliken är synlig) och direkt när fliken får fokus igen. Ritar bara
+  om när listan faktiskt ändrats — scrolläge och pågående redigering störs inte.
+  Noter skapade via API:t (t.ex. från Claude) dyker upp utan manuell reload.
+
 ## 1.15 – 2026-06-26
 
 - **Checklista i editorn**: ny ☑-knapp i filnamnsraden som lägger `- [ ] ` på

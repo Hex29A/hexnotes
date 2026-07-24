@@ -9,6 +9,18 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.18 – 2026-07-24
+
+- **Bugfix — ny not tappade sin titel om man klickade i texten före Enter**:
+  filnamnsfältet vid namngivning av en ny not committade bara namnet på
+  Enter. Klickade man istället direkt i editorn (utan Enter) triggade det
+  bara ett blur som TOG BORT det skrivna namnet utan att spara det — noten
+  skapades sedan utan filnamn, och backend föll tillbaka på dagens datum som
+  filnamn. Blur committar nu namnet (samma no-op-skydd som Enter om fältet är
+  tomt/oförändrat) istället för att kasta det. Skyddade även mot en möjlig
+  dubbel-POST-race mot autosaven genom att låta namn-committen använda samma
+  isSaving-spärr.
+
 ## 1.17 – 2026-07-24
 
 - **Bugfix — borttaget auto-trash-on-blur i editorn**: när textarean tappade

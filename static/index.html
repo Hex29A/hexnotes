@@ -2140,6 +2140,9 @@ async function doRename() {
   if (newName === currentFilename) { cancelRename(); if (isNew) $editor.focus(); return; }
 
   $filenameInput.disabled = true;
+  // Block the editor's debounced autosave from firing its own create/save
+  // request while this one is in flight (see blur handler below).
+  isSaving = true;
 
   try {
     const id = isNew ? null : activeNoteId;
@@ -2213,6 +2216,7 @@ async function doRename() {
     $filenameError.style.display = 'block';
   } finally {
     $filenameInput.disabled = false;
+    isSaving = false;
   }
 }
 
@@ -2236,8 +2240,12 @@ $filenameInput.addEventListener('keydown', e => {
   if (e.key === 'Escape') { cancelRename(); if (isNew) $editor.focus(); }
 });
 $filenameInput.addEventListener('blur', () => {
-  // Small delay to allow click events to fire
-  setTimeout(() => { if (isRenaming) cancelRename(); }, 150);
+  // Small delay to allow a click on e.g. the escape/cancel path to land first.
+  // Commits via doRename() rather than discarding — clicking into the editor
+  // to start writing (without pressing Enter first) must keep the typed
+  // title; doRename() itself no-ops safely if the field is empty or
+  // unchanged, so this is a strict superset of the old cancel-only behavior.
+  setTimeout(() => { if (isRenaming) doRename(); }, 150);
 });
 
 // === SECTION: DELETE ===

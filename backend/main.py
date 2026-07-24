@@ -17,7 +17,7 @@ from pydantic import BaseModel
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-APP_VERSION = "1.16"  # bump minor for features, major for breaking changes — see CHANGELOG.md
+APP_VERSION = "1.17"  # bump minor for features, major for breaking changes — see CHANGELOG.md
 
 NOTES_PATH = Path("/app/notes")
 TRASH_PATH = NOTES_PATH / ".trash"

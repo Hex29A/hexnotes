@@ -9,6 +9,16 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.17 – 2026-07-24
+
+- **Bugfix — borttaget auto-trash-on-blur i editorn**: när textarean tappade
+  fokus medan den var tom PATCHades noten med tomt innehåll, vilket
+  server-sidan tolkar som "flytta till papperskorgen". Blur är inget bevis på
+  avsikt — den triggas av avbrott (notis, appväxling, telefonlås,
+  autocomplete som stjäl fokus), även mitt i en redigering (t.ex.
+  markera-allt-och-skriv-om). Orsakade en riktig radering av home.md
+  2026-07-13. Radering sker nu bara via den explicita delete-knappen.
+
 ## 1.16 – 2026-07-07
 
 - **Auto-uppdaterad fillista**: sidofältet pollar `/api/notes` var 30:e sekund

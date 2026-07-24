@@ -1741,31 +1741,13 @@ function scheduleRetry(content) {
   }
 }
 
-// Auto-trash on blur with empty content — but only if the note ever had
-// content; a freshly named empty note must survive losing focus
-$editor.addEventListener('blur', () => {
-  if (!activeNoteId || isNew || !noteHadContent) return;
-  const content = $editor.value;
-  if (!content || !content.trim()) {
-    // Move to trash via PATCH with empty content
-    apiFetch(`/api/notes/${encodeURIComponent(activeNoteId)}`, {
-      method: 'PATCH',
-      body: { content: '' },
-    }).then(res => {
-      if (res.status === 204) {
-        const deletedId = activeNoteId;
-        activeNoteId = null;
-        notes = notes.filter(n => n.id !== deletedId);
-        renderNotesList();
-        if (notes.length > 0) {
-          openNote(notes[0].id);
-        } else {
-          showEmpty();
-        }
-      }
-    }).catch(() => {});
-  }
-});
+// NOTE: there used to be an auto-trash-on-blur here (PATCH with empty
+// content when the editor lost focus while blank). Removed 2026-07-24 — a
+// blur is not proof of intent, it fires on any interruption (notification,
+// app switch, phone lock, autocomplete stealing focus), including mid-edit
+// moments like a select-all-then-retype. That raced a real note (home.md)
+// into the trash on 2026-07-13. Deletion now only happens through the
+// explicit delete button (DELETE /api/notes/{id}, see pendingDeleteId flow).
 
 // === SECTION: SAVE INDICATOR ===
 function showSaving() {

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import re
@@ -17,7 +18,7 @@ from pydantic import BaseModel
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-APP_VERSION = "1.18"  # bump minor for features, major for breaking changes — see CHANGELOG.md
+APP_VERSION = "1.19"  # bump minor for features, major for breaking changes — see CHANGELOG.md
 
 NOTES_PATH = Path("/app/notes")
 TRASH_PATH = NOTES_PATH / ".trash"
@@ -44,11 +45,13 @@ class NoteOut(BaseModel):
     preview: str
     is_timeless: bool
     pinned: bool
+    expires_at: Optional[str] = None
     snippet: Optional[str] = None
 
 class NoteCreate(BaseModel):
     content: str = ""
     filename: Optional[str] = None
+    ttl_hours: Optional[int] = None  # ephemeral note: auto-trash after N hours (24/48)
 
 class NoteUpdate(BaseModel):
     content: str
@@ -153,20 +156,23 @@ def sanitize_filename(filename: str) -> str:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _build_frontmatter(tags: list[str], created: Optional[str], pinned: bool = False) -> str:
+def _build_frontmatter(tags: list[str], created: Optional[str], pinned: bool = False, expires_at: Optional[str] = None) -> str:
     lines = ["---"]
     lines.append(f"tags: [{', '.join(tags)}]")
     lines.append(f"created: {created if created else 'null'}")
     if pinned:
         lines.append("pinned: true")
+    if expires_at:
+        lines.append(f"expires_at: {expires_at}")
     lines.append("---")
-    return "\n".join(lines) + "\n"
+    return chr(10).join(lines) + chr(10)
 
 
-def _write_note_with_frontmatter(path: Path, content: str, created: Optional[str], pinned: bool = False):
+def _write_note_with_frontmatter(path: Path, content: str, created: Optional[str], pinned: bool = False, expires_at: Optional[str] = None):
     tags = extract_tags(content)
-    fm = _build_frontmatter(tags, created, pinned)
+    fm = _build_frontmatter(tags, created, pinned, expires_at)
     path.write_text(fm + content, encoding="utf-8")
+
 
 
 def parse_note(path: Path) -> dict:
@@ -187,6 +193,7 @@ def parse_note(path: Path) -> dict:
 
     tags = extract_tags(content)
     pinned = bool(meta.get("pinned", False))
+    expires_at = str(meta["expires_at"]) if meta.get("expires_at") else None
 
     first_line = ""
     for line in content.strip().splitlines():
@@ -206,6 +213,7 @@ def parse_note(path: Path) -> dict:
         "preview": preview,
         "is_timeless": date_str is None,
         "pinned": pinned,
+        "expires_at": expires_at,
     }
 
 
@@ -410,6 +418,33 @@ Make it yours: fill it with [[wiki-links]] to your important notes.
 """
 
 
+def _sweep_expired() -> int:
+    """Flytta noter med utgången expires_at till papperskorgen. Returnerar antal."""
+    now_iso = datetime.now(UTC).isoformat(timespec="seconds")
+    count = 0
+    for note_id, note in list(notes_index.items()):
+        exp = note.get("expires_at")
+        if not exp:
+            continue
+        try:
+            if str(exp) <= now_iso:
+                _move_to_trash(note_id)
+                invalidate_delete(note_id)
+                count += 1
+        except Exception:
+            pass
+    return count
+
+
+async def _expiry_loop():
+    while True:
+        await asyncio.sleep(600)
+        try:
+            _sweep_expired()
+        except Exception:
+            pass
+
+
 @app.on_event("startup")
 async def startup():
     if not TOKENS_FILE.exists():
@@ -425,6 +460,10 @@ async def startup():
         except Exception:
             pass
     build_index()
+    expired = _sweep_expired()
+    if expired:
+        print(f"[startup] {expired} ephemeral note(s) expired → trash", flush=True)
+    asyncio.create_task(_expiry_loop())
 
 
 # ---------------------------------------------------------------------------
@@ -541,7 +580,13 @@ async def create_note(body: NoteCreate, _=Depends(require_token)):
     date_str = created_at_from_filename(path.name)
     created = date_str if date_str else date.today().isoformat()
 
-    _write_note_with_frontmatter(path, content, created)
+    expires_at = None
+    if body.ttl_hours:
+        expires_at = (datetime.now(UTC).isoformat(timespec="seconds"))
+        from datetime import timedelta
+        expires_at = (datetime.now(UTC) + timedelta(hours=body.ttl_hours)).isoformat(timespec="seconds")
+
+    _write_note_with_frontmatter(path, content, created, expires_at=expires_at)
     notes_index[stem] = parse_note(path)
     return notes_index[stem]
 
@@ -577,8 +622,9 @@ async def update_note(note_id: str, body: NoteUpdate, _=Depends(require_token)):
         date_str = created_at_from_filename(f"{note_id}.md")
         created = date_str if date_str else None
     pinned = bool(meta.get("pinned", False))
+    expires_at = str(meta["expires_at"]) if meta.get("expires_at") else None
 
-    _write_note_with_frontmatter(path, body.content, created, pinned)
+    _write_note_with_frontmatter(path, body.content, created, pinned, expires_at)
     invalidate(note_id)
     return notes_index[note_id]
 
@@ -621,7 +667,8 @@ async def pin_note(note_id: str, _=Depends(require_token)):
         created = date_str if date_str else None
 
     new_pinned = not bool(meta.get("pinned", False))
-    _write_note_with_frontmatter(path, content, created, new_pinned)
+    expires_at = str(meta["expires_at"]) if meta.get("expires_at") else None
+    _write_note_with_frontmatter(path, content, created, new_pinned, expires_at)
     invalidate(note_id)
     return notes_index[note_id]
 
@@ -777,4 +824,5 @@ async def purge_trash_entry(name: str, _=Depends(require_token)):
 # Static files – must be last
 # ---------------------------------------------------------------------------
 
-app.mount("/", StaticFiles(directory="/app/static", html=True), name="static")
+STATIC_DIR = os.environ.get("HEXNOTES_STATIC", "/app/static")
+app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")

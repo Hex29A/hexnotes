@@ -1,5 +1,8 @@
+import os
 import pytest
 from pathlib import Path
+
+os.environ.setdefault("HEXNOTES_STATIC", str(Path(__file__).resolve().parent.parent / "static"))
 from fastapi.testclient import TestClient
 from backend.main import app, notes_index
 

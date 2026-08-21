@@ -9,6 +9,10 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.19 – 2026-08-21
+
+- **Ny funktion — kortlivade (ephemeral) noter**: ny knapp i topbar (tidsglas-ikon, bredvid “+ New”) skapar en not som automatiskt flyttas till papperskorgen efter 48 timmar. TTL skickas som `ttl_hours` vid `POST /api/notes` (valfritt, heltimmar), lagras som `expires_at` i frontmatter och överlever redigeringar och pin-växling. Bakgrundssvep var 10:e minut + vid omstart städar utgångna noter.
+
 ## 1.18 – 2026-07-24
 
 - **Bugfix — ny not tappade sin titel om man klickade i texten före Enter**:

@@ -4,6 +4,8 @@ Self-hosted, lightweight note-taking app. Notes are stored as plain `.md` files 
 
 ![HexNotes — rendered note with live task checkboxes, wiki links and backlinks](docs/screenshot.png)
 
+Notes can be created as **ephemeral** with a TTL (`POST /api/notes` body: `"ttl_hours": 48`) — they are auto-moved to trash when the TTL expires.
+
 Current version: see `APP_VERSION` in `backend/main.py`, exposed via `GET /health` and shown in the topbar. Release notes in [CHANGELOG.md](CHANGELOG.md).
 
 ---

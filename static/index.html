@@ -154,6 +154,12 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
   white-space: nowrap;
 }
 #btn-new:hover { opacity: 0.9; }
+#btn-ephemeral {
+  background: none; border: 1px solid var(--border); border-radius: 8px;
+  padding: 4px 10px; font-size: 14px; cursor: pointer; color: var(--text-muted);
+}
+#btn-ephemeral:hover { color: var(--accent); }
+#btn-ephemeral.armed { color: var(--accent); border-color: var(--accent); }
 #btn-today {
   background: none;
   font-size: 16px;
@@ -1040,6 +1046,7 @@ mark {
     </div>
     <button id="btn-sync" title="Sync notes">↻</button>
     <button id="btn-today" title="Today's note (Ctrl+D)">📅</button>
+    <button id="btn-ephemeral" title="New ephemeral note — auto-deleted after 48h">⏳</button>
     <button id="btn-new" title="New note (Ctrl+N)">+ New</button>
   </div>
 
@@ -1166,6 +1173,7 @@ let notes = [];
 let activeNoteId = null;
 let isNew = false;
 let newNoteFilename = null;
+let ephemeralArmed = false;  // nasta nya not blir ephemeral (48h)
 let pendingContent = null;
 let isSaving = false;
 let saveTimer = null;
@@ -1624,12 +1632,14 @@ function showEmpty() {
 }
 
 // === SECTION: NEW NOTE ===
-function createNewNote() {
+function createNewNote(ephemeral = false) {
   activeNoteId = null;
   isNew = true;
   newNoteFilename = null;
   pendingContent = null;
   noteHadContent = false;
+  ephemeralArmed = ephemeral;
+  updateEphemeralButton();
 
   $filenameDisplay.textContent = 'new-note.md';
   $filenameDisplay.style.display = '';
@@ -1680,6 +1690,7 @@ async function save(content) {
     if (isNew) {
       const body = { content };
       if (newNoteFilename) body.filename = newNoteFilename;
+      if (ephemeralArmed) body.ttl_hours = 48;
       res = await apiFetch('/api/notes', { method: 'POST', body });
     } else if (activeNoteId) {
       res = await apiFetch(`/api/notes/${encodeURIComponent(activeNoteId)}`, {
@@ -1697,6 +1708,7 @@ async function save(content) {
         activeNoteId = created.id;
         isNew = false;
         newNoteFilename = null;
+        ephemeralArmed = false;
         localStorage.setItem('hexnotes_lastNote', created.id);
         pushNoteHash(created.id);
         $filenameDisplay.textContent = created.filename;
@@ -2167,6 +2179,7 @@ async function doRename() {
         activeNoteId = created.id;
         isNew = false;
         newNoteFilename = null;
+        ephemeralArmed = false;
         noteHadContent = !!created.content.trim();
         localStorage.setItem('hexnotes_lastNote', created.id);
         pushNoteHash(created.id);
@@ -2676,8 +2689,13 @@ document.addEventListener('keydown', e => {
 });
 
 // === SECTION: NEW NOTE BUTTONS ===
-$btnNew.addEventListener('click', createNewNote);
-$fab.addEventListener('click', createNewNote);
+$btnNew.addEventListener('click', () => createNewNote(false));
+$fab.addEventListener('click', () => createNewNote(false));
+document.getElementById('btn-ephemeral').addEventListener('click', () => createNewNote(true));
+function updateEphemeralButton() {
+  const b = document.getElementById('btn-ephemeral');
+  if (b) b.classList.toggle('armed', isNew && ephemeralArmed);
+}
 
 // === SECTION: TODAY'S NOTE ===
 function openToday() {

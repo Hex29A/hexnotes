@@ -562,6 +562,27 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
   box-shadow: 0 4px 12px rgba(0,0,0,0.3);
 }
 #fab:hover { opacity: 0.9; }
+#fab.holding {
+  background: #f0b429;
+  transform: scale(1.12);
+  transition: transform 0.2s, background 0.2s;
+}
+#fab-hint {
+  display: none;
+  position: fixed;
+  bottom: 92px;
+  right: 24px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  z-index: 101;
+  pointer-events: none;
+}
+#fab-hint.visible { display: block; }
+
 
 /* Confirm dialog */
 #confirm-overlay {
@@ -1040,7 +1061,7 @@ mark {
   #search-input { max-width: none; }
   #fab { display: flex; }
   #btn-new { display: none; }
-  #btn-ephemeral { display: inline-block; padding: 4px 8px; font-size: 15px; flex-shrink: 0; }
+  #btn-ephemeral { display: none; }
   #btn-today { display: none; }
   #btn-sync { display: block; }
   #editor { padding: 12px; }
@@ -1136,6 +1157,7 @@ mark {
 
 <!-- FAB -->
 <button id="fab">+</button>
+<div id="fab-hint">⏳ Ephemeral not – 48h</div>
 
 <!-- Offline bar -->
 <div id="offline-bar">● Offline – changes will be saved when you're back online</div>
@@ -2745,6 +2767,43 @@ document.addEventListener('keydown', e => {
 // === SECTION: NEW NOTE BUTTONS ===
 $btnNew.addEventListener('click', () => createNewNote(false));
 $fab.addEventListener('click', () => createNewNote(false));
+
+// Langtryck pa FAB (mobilen): skapa ephemeral not (48h).
+// < 500ms = vanlig klick (vanlig not); >= 500ms = ephemeral.
+(function fabLongPress() {
+  const HOLD_MS = 500;
+  let timer = null;
+  let longFired = false;
+
+  function start(e) {
+    if (!('ontouchstart' in window)) return;  // bara pekskarm
+    longFired = false;
+    $fab.classList.add('holding');
+    document.getElementById('fab-hint').classList.add('visible');
+    timer = setTimeout(() => {
+      longFired = true;
+      $fab.classList.remove('holding');
+      document.getElementById('fab-hint').classList.remove('visible');
+      if (navigator.vibrate) navigator.vibrate(30);
+      createNewNote(true);
+    }, HOLD_MS);
+  }
+  function cancel(fireClick) {
+    if (timer) { clearTimeout(timer); timer = null; }
+    $fab.classList.remove('holding');
+    document.getElementById('fab-hint').classList.remove('visible');
+    // touchstart+touchend triggar annars en syntetisk click - da hoppa over den
+    if (longFired) e.preventDefault();
+  }
+  $fab.addEventListener('touchstart', start, { passive: true });
+  $fab.addEventListener('touchend', cancel);
+  $fab.addEventListener('touchmove', () => cancel(false), { passive: true });
+  $fab.addEventListener('touchcancel', () => cancel(false));
+  // Blockera den syntetiska clicken efter ett langtryck
+  $fab.addEventListener('click', e => {
+    if (longFired) { e.stopImmediatePropagation(); longFired = false; }
+  }, true);
+})();
 document.getElementById('btn-ephemeral').addEventListener('click', () => createNewNote(true));
 function updateEphemeralButton() {
   const b = document.getElementById('btn-ephemeral');

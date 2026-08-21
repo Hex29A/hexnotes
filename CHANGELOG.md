@@ -9,6 +9,12 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.21 (2026-08-21)
+
+- **Mobil UX - langtryck pa +-knappen (FAB)** skapar en ephemeral not (48h). FAB:n lysnar gul under holdet med hint ⏳ Ephemeral not, kort vibration bekräftar. Kort tryck = vanlig not som vanligt.
+- Topbar-⏳-knappen goms på små skärmar (FAB-langtryck tar över); den finns kvar på desktop.
+- JS-syntax verifieras nu med esprima före deploy (efter 1.20.x-haveriet). 102 tester passerar.
+
 ## 1.20.3 (2026-08-21)
 
 - KRITISK bugfix del 2: hourglass-strangen saknade aven avslutande apostrof (1.20.2 lagg bara till komma). JS-parse verifierad med esprima fore deploy. 99 tester passerar.

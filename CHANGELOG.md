@@ -9,6 +9,10 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.20.2 (2026-08-21)
+
+- KRITISK bugfix: saknat komma i hourglass-ikonens SVG-strang (fr 1.20.1) kraschade hela app-JS:et - ingen kunde logga in. Fixat. 99 tester passerar.
+
 ## 1.20.1 (2026-08-21)
 
 - Bugfix mobil: hourglass-knappen (ephemeral) var osynlig/trang pa sma skarmar. Visas nu kompakt i topbaren pa mobil med hourglass-ikon; Today-knappen goms pa mobil. 99 tester passerar.

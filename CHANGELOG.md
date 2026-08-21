@@ -9,6 +9,10 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.21.1 (2026-08-21)
+
+- **Bugfix**: ephemeral-flaggan tappades nar man namngav en ny not (doRename skapade noten utan ttl_hours och nollstalde flaggan) - drabbade mobilens FAB-langtryck dar namnfrasen kommer forst. doRename skickar nu med ttl_hours = 48 nar ephemeral ar armerad. 104 tester passerar.
+
 ## 1.21 (2026-08-21)
 
 - **Mobil UX - langtryck pa +-knappen (FAB)** skapar en ephemeral not (48h). FAB:n lysnar gul under holdet med hint ⏳ Ephemeral not, kort vibration bekräftar. Kort tryck = vanlig not som vanligt.

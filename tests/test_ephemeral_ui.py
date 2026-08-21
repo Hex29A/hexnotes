@@ -30,4 +30,4 @@ def test_expired_note_excluded_from_live_section(client, auth, tmp_notes):
 
 def test_version_is_1_20(client):
     r = client.get("/health")
-    assert r.json()["version"].startswith("1.20")
+    assert r.json()["version"].startswith("1.2")

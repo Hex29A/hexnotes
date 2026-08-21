@@ -2238,9 +2238,11 @@ async function doRename() {
       // For new notes: naming the note creates it right away, even with empty content
       let res;
       try {
+        const renameBody = { content: $editor.value || '', filename: newName };
+        if (ephemeralArmed) renameBody.ttl_hours = 48;
         res = await apiFetch('/api/notes', {
           method: 'POST',
-          body: { content: $editor.value || '', filename: newName },
+          body: renameBody,
         });
       } catch {
         // Offline/network error — keep the name and create on first autosave instead

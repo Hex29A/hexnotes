@@ -1040,6 +1040,8 @@ mark {
   #search-input { max-width: none; }
   #fab { display: flex; }
   #btn-new { display: none; }
+  #btn-ephemeral { display: inline-block; padding: 4px 8px; font-size: 15px; flex-shrink: 0; }
+  #btn-today { display: none; }
   #btn-sync { display: block; }
   #editor { padding: 12px; }
 }
@@ -2999,6 +3001,7 @@ $paletteOverlay.addEventListener('click', e => { if (e.target === $paletteOverla
 // via currentColor, so hover/active states style properly — unlike the old
 // emojis, which ignored CSS color and looked different on every platform.
 const ICONS = {
+  'hourglass': '<path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/>
   'arrow-left': '<path d="m12 19-7-7 7-7" /> <path d="M19 12H5" />',
   'calendar-days': '<path d="M8 2v4" /> <path d="M16 2v4" /> <rect width="18" height="18" x="3" y="4" rx="2" /> <path d="M3 10h18" /> <path d="M8 14h.01" /> <path d="M12 14h.01" /> <path d="M16 14h.01" /> <path d="M8 18h.01" /> <path d="M12 18h.01" /> <path d="M16 18h.01" />',
   'chevron-down': '<path d="m6 9 6 6 6-6" />',
@@ -3040,7 +3043,7 @@ function icon(name) {
     'find-prev': 'chevron-up', 'find-next': 'chevron-down', 'find-close': 'x',
     'trash-back': 'arrow-left', 'trash-close': 'x',
     'history-back': 'arrow-left', 'history-close': 'x',
-    'fab': 'plus',
+    'fab': 'plus', 'btn-ephemeral': 'hourglass',
   };
   for (const [id, name] of Object.entries(map)) {
     const el = document.getElementById(id);

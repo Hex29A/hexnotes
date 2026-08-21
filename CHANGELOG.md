@@ -9,6 +9,13 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.20 – 2026-08-21
+
+- **UI — Ephemeral-sektionen överst**: kortlivade noter med levande TTL visas i en egen ⏳-sektion högst upp i sidofäljen (över Pinned). De exkluderas från Pinned/Inbox/taggar sänge de lever.
+- **Gul markering**: ephemeral-kort får gul vänsterkant och svag gul toning.
+- **Nedräknings-badge**: varje kort visar ⏳ 'Xh kvar' / 'Xm kvar', uppdateras varje minut.
+- 3 nya tester (99 totalt passerar).
+
 ## 1.19 – 2026-08-21
 
 - **Ny funktion — kortlivade (ephemeral) noter**: ny knapp i topbar (tidsglas-ikon, bredvid “+ New”) skapar en not som automatiskt flyttas till papperskorgen efter 48 timmar. TTL skickas som `ttl_hours` vid `POST /api/notes` (valfritt, heltimmar), lagras som `expires_at` i frontmatter och överlever redigeringar och pin-växling. Bakgrundssvep var 10:e minut + vid omstart städar utgångna noter.

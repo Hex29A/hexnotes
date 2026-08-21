@@ -221,6 +221,29 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
 .note-card.pinned {
   border-left-color: var(--accent);
 }
+.note-card.ephemeral {
+  border-left-color: #f0b429;
+  background: rgba(240, 180, 41, 0.07);
+}
+.note-card.ephemeral:hover { background: rgba(240, 180, 41, 0.12); }
+.note-card.ephemeral.active {
+  background: var(--bg-card-active);
+  border-left-color: var(--accent);
+}
+.eph-ttl {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #b07d0a;
+  background: rgba(240, 180, 41, 0.15);
+  padding: 1px 6px;
+  border-radius: 9999px;
+  white-space: nowrap;
+}
+:root.dark .eph-ttl { color: #f0c75e; }
+
 .pin-btn {
   position: absolute;
   top: 8px;
@@ -1347,9 +1370,26 @@ function escapeHtml(str) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+function ttlLabel(expiresAt) {
+  const ms = new Date(expiresAt) - new Date();
+  if (ms <= 0) return 'utgången';
+  const h = Math.floor(ms / 3600000);
+  if (h >= 1) return h + 'h kvar';
+  return Math.max(1, Math.floor(ms / 60000)) + 'm kvar';
+}
+
+function refreshEphemeralBadges() {
+  for (const el of document.querySelectorAll('.eph-ttl')) {
+    el.textContent = '\u23f3 ' + ttlLabel(el.dataset.expiresAt);
+  }
+}
+setInterval(refreshEphemeralBadges, 60000);
+
 function makeNoteCard(n) {
   const card = document.createElement('div');
-  card.className = 'note-card' + (n.id === activeNoteId ? ' active' : '') + (n.pinned ? ' pinned' : '');
+  const isEphemeral = !!n.expires_at && new Date(n.expires_at) > new Date();
+  card.className = 'note-card' + (n.id === activeNoteId ? ' active' : '') +
+    (n.pinned ? ' pinned' : '') + (isEphemeral ? ' ephemeral' : '');
   card.dataset.id = n.id;
 
   const preview = document.createElement('div');
@@ -1383,6 +1423,14 @@ function makeNoteCard(n) {
   dateSpan.className = 'note-card-date';
   dateSpan.textContent = relativeDate(n.updated_at);
   meta.appendChild(dateSpan);
+
+  if (isEphemeral) {
+    const ttl = document.createElement('span');
+    ttl.className = 'eph-ttl';
+    ttl.dataset.expiresAt = n.expires_at;
+    ttl.textContent = '\u23f3 ' + ttlLabel(n.expires_at);
+    meta.appendChild(ttl);
+  }
 
   card.appendChild(preview);
 
@@ -1507,11 +1555,15 @@ function renderNotesList() {
     return;
   }
 
-  // Pinned group first (all pinned notes, regardless of tags)
-  const pinned = notes.filter(n => n.pinned);
+  // Ephemeral group first: notes with a live expires_at
+  const ephemeral = notes.filter(n => n.expires_at && new Date(n.expires_at) > new Date());
+  renderNoteGroup('ephemeral', '\u23f3<span>Ephemeral</span>', ephemeral);
+
+  // Pinned group (excluding ephemeral ones, they already have their own section)
+  const pinned = notes.filter(n => n.pinned && !(n.expires_at && new Date(n.expires_at) > new Date()));
   renderNoteGroup('pinned', icon('pin') + '<span>Pinned</span>', pinned);
 
-  const unpinned = notes.filter(n => !n.pinned);
+  const unpinned = notes.filter(n => !n.pinned && !(n.expires_at && new Date(n.expires_at) > new Date()));
 
   // Inbox second: unpinned notes with no tags
   const inbox = unpinned.filter(n => n.tags.length === 0);

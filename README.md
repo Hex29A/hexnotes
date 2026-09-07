@@ -118,6 +118,7 @@ List all notes, sorted by last updated (descending).
     "preview": "My note content #tag",
     "is_timeless": false,
     "pinned": false,
+    "version": "f709c7eeb7b82d67",
     "snippet": null
   }
 ]
@@ -127,6 +128,7 @@ List all notes, sorted by last updated (descending).
 - `is_timeless` — `true` if the filename has no `YYYY-MM-DD` prefix
 - `pinned` — `true` if the note is pinned to the top of the list
 - `content` — raw text, **never includes YAML frontmatter**
+- `version` — short content hash, used for conflict detection on `PATCH` (see below). Covers the body only, so pinning or renaming does not change it.
 - `snippet` — `null` normally. When `?q=` is provided, contains a ~90-char excerpt from the first matching line in the note body, with `…` ellipsis if truncated. Useful for AI agents to surface relevant context without reading full content.
 
 ---
@@ -172,6 +174,31 @@ Update note content. Always send the **full content**, not a diff.
 - Tags in frontmatter are updated automatically from `#tags` in text
 - The previous version is snapshotted to `.history/<id>/` before the write (skipped if content is unchanged)
 - If `content` is empty or whitespace → note is moved to trash → returns `204 No Content` (restorable via the Trash API)
+
+**Conflict detection (optional).** Include the `version` you based your edit on and the write is rejected instead of overwriting a change you never saw:
+
+```json
+{ "content": "Updated full content", "base_version": "f709c7eeb7b82d67" }
+```
+
+If the note changed in the meantime the response is `409 Conflict` carrying the current state, so you can merge or retry without a second request:
+
+```json
+{
+  "detail": {
+    "error": "conflict",
+    "message": "The note was changed by someone else",
+    "version": "a3f01c9d2b6e4a77",
+    "content": "...what is on disk right now..."
+  }
+}
+```
+
+- Omitting `base_version` writes unconditionally — existing clients keep working
+- The check runs before the empty-content rule, so a stale client cannot trash a note that moved on
+- A rejected write changes nothing: no file write, no history snapshot
+- To force your version through, retry with the `version` from the 409 body
+- **For AI agents:** worth using whenever a human might have the same note open in the browser. Without it, whoever writes last wins silently.
 
 ---
 
@@ -339,6 +366,7 @@ POST /api/notes/2026-04-04/rename
 ### Tips for agents
 
 - Use `#tags` in content to categorize notes — they are indexed automatically
+- Send `base_version` on `PATCH` when a human might have the note open — you get a `409` with their content instead of silently destroying their edit
 - `id` = filename without `.md` — use this in all endpoint paths
 - After a `rename`, the old `id` is gone — always use the new `id` returned in the response
 - Empty `PATCH` content moves the note to trash — undo via `GET /api/trash` + `POST /api/trash/{name}/restore`
@@ -384,11 +412,25 @@ The frontend keeps notes up to date via multiple mechanisms:
 | Trigger | Behavior |
 |---------|----------|
 | Typing stops (1s) | Autosave current note |
-| Switch back to tab/app | Reload note list |
-| Browser window regains focus | Reload note list |
+| Switch back to tab/app | Reload note list **+ open note** |
+| Browser window regains focus | Reload note list **+ open note** |
+| Every 30 seconds (visible tab) | Background poll of list **+ open note** |
 | Every 60 seconds (idle) | Background reload of note list |
 | Manual ↻ button (mobile) | Force reload |
 | Reconnect after offline | Save pending content, reload list |
+
+**The open note updates too**, not just the sidebar — so a note edited by an AI
+agent or another device refreshes under you within ~30s. This reuses the list
+response, which already contains full content, so it costs no extra requests.
+
+Two rules keep it safe:
+
+- An editor with **unsaved changes is never overwritten** — your typing always wins, and the update is deferred
+- Caret and scroll position survive the swap, so a refresh mid-read doesn't lose your place
+
+If both sides changed, the save is rejected (see `base_version` above) and a bar
+offers **Load theirs** or **Keep mine**. Choosing *Keep mine* still snapshots
+their version to `.history/` first, so nothing is lost either way.
 
 ---
 
@@ -487,7 +529,7 @@ Every opened note gets a hash URL (`#note-id`) pushed to browser history:
 docker compose run --rm hexnotes pytest tests/ -v --tb=short
 ```
 
-86 tests across four files:
+120 tests:
 
 | File | Covers |
 |------|--------|
@@ -495,6 +537,11 @@ docker compose run --rm hexnotes pytest tests/ -v --tb=short
 | `tests/test_api.py` | Auth, CRUD, search, rename (incl. path traversal), tokens, health |
 | `tests/test_history.py` | Version history: snapshots, ordering, restore round-trip, rename migration, traversal rejection |
 | `tests/test_trash.py` | Trash: listing, restore (incl. collision), purge, history migration, legacy files, traversal rejection |
+| `tests/test_conflict.py` | Optimistic concurrency: `version` field, `base_version` accept/reject, 409 payload, stale-trash guard |
+| `tests/test_ephemeral.py` | Ephemeral notes: TTL frontmatter, expiry sweep |
+| `tests/test_ephemeral_ui.py` | Ephemeral rendering in the sidebar |
+| `tests/test_rename_ttl.py` | TTL survives rename |
+| `tests/test_fab.py` | Mobile FAB long-press ephemeral flow |
 
 Frontend features (sidebar, palette, find bar, preview, dialogs) are pure client-side and do not have automated tests.
 

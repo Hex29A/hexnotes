@@ -9,6 +9,43 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.22 (2026-09-07)
+
+_Changelog entries are in English from this version on._
+
+- **Live sync of the open note.** The note you are reading now updates when it
+  changes on the server — an AI agent writing over the API, or another device.
+  Previously only the sidebar refreshed, so an open note could sit stale
+  indefinitely. The refresh reuses the list poll (which already carries full
+  content), so it costs no extra requests. Caret and scroll position are
+  preserved; an editor with unsaved changes is never overwritten.
+- **Conflict detection (no more silent overwrites).** `PATCH /api/notes/{id}`
+  accepts an optional `base_version`; if the note changed since that version the
+  write is rejected with `409` instead of clobbering. This closes a real
+  data-loss path: open a note, let an agent write to it, type one character, and
+  the agent's work was silently replaced. The frontend sends `base_version`
+  automatically and offers **Load theirs** / **Keep mine**.
+- **New `version` field** on every note object — a short content hash. Hashes the
+  body only, so pinning a note does not invalidate an open editor. Deliberately
+  not `updated_at`, which only has second resolution and cannot distinguish two
+  writes in the same second.
+- `base_version` is optional, so existing API clients keep working unchanged.
+- **Save-path hardening** found while reviewing the above:
+  - Keystrokes typed while a save was in flight could be marked saved and then
+    discarded by an incoming refresh. The buffer is now only cleared if it still
+    matches what was actually sent.
+  - Switching notes mid-save wrote the old note's version into the newly opened
+    one, causing a bogus conflict on the next keystroke. Save continuations now
+    verify they still own the editor before touching shared state.
+  - Naming a new note via the filename field never recorded its version, so that
+    note saved unconditionally for the rest of the session — precisely the case
+    where an agent write got overwritten. Fixed.
+  - A list response fetched before a local write could roll the editor (and its
+    version) backwards. List fetches now carry a write sequence number and stale
+    payloads are discarded.
+- 16 new tests (120 total passing), plus browser verification of the sync and
+  conflict UI and of each race above.
+
 ## 1.21.1 (2026-08-21)
 
 - **Bugfix**: ephemeral-flaggan tappades nar man namngav en ny not (doRename skapade noten utan ttl_hours och nollstalde flaggan) - drabbade mobilens FAB-langtryck dar namnfrasen kommer forst. doRename skickar nu med ttl_hours = 48 nar ephemeral ar armerad. 104 tester passerar.

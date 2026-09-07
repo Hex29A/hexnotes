@@ -486,6 +486,34 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
   flex-shrink: 0;
 }
 
+/* Conflict bar — the note changed elsewhere (AI, another device) while open.
+   Uses the offline palette, not the error palette: this is a state that needs
+   a decision, not a failure. */
+#conflict-bar {
+  display: none;
+  padding: 8px 16px;
+  background: var(--offline-bg);
+  color: var(--offline-text);
+  font-size: 12px;
+  flex-shrink: 0;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+#conflict-bar-msg { flex: 1; }
+#conflict-bar button {
+  background: none;
+  border: 1px solid var(--offline-text);
+  color: var(--offline-text);
+  font-size: 11px;
+  padding: 2px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: var(--font);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 /* Editor */
 #editor-wrap {
   flex: 1;
@@ -1129,6 +1157,11 @@ mark {
         <button id="error-bar-retry">Retry</button>
         <button id="error-bar-dismiss">✕</button>
       </div>
+      <div id="conflict-bar">
+        <span id="conflict-bar-msg">This note was changed elsewhere</span>
+        <button id="conflict-bar-reload">Load theirs</button>
+        <button id="conflict-bar-keep">Keep mine</button>
+      </div>
       <div id="find-bar">
         <input id="find-input" placeholder="Find in note..." spellcheck="false" autocomplete="off">
         <span id="find-counter">─</span>
@@ -1222,6 +1255,13 @@ let isNew = false;
 let newNoteFilename = null;
 let ephemeralArmed = false;  // nasta nya not blir ephemeral (48h)
 let pendingContent = null;
+// Version (content hash) the open editor is based on. Sent as base_version on
+// PATCH so the backend can reject a write that would clobber someone else's.
+let activeVersion = null;
+// Bumped on every successful local write. A list response fetched before the
+// most recent write is stale by definition and must not be synced into the
+// editor — it would roll the content (and activeVersion) backwards.
+let localWriteSeq = 0;
 let isSaving = false;
 let saveTimer = null;
 let retryCount = 0;
@@ -1330,9 +1370,11 @@ async function loadNotes() {
     const q = $searchInput.value.trim();
     let url = '/api/notes?limit=200';
     if (q) url += `&q=${encodeURIComponent(q)}`;
+    const seq = localWriteSeq;
     const res = await apiFetch(url);
     if (!res.ok) throw new Error();
     notes = await res.json();
+    syncActiveNoteFrom(notes, seq);
     renderNotesList();
     // Restore active note — URL hash (deep link) wins, then home.md start page
     if (!activeNoteId && !isNew) {
@@ -1373,9 +1415,11 @@ async function pollNotes() {
     const q = $searchInput.value.trim();
     let url = '/api/notes?limit=200';
     if (q) url += `&q=${encodeURIComponent(q)}`;
+    const seq = localWriteSeq;
     const res = await apiFetch(url);
     if (!res.ok) return;
     const fresh = await res.json();
+    syncActiveNoteFrom(fresh, seq);
     if (notesSignature(fresh) !== notesSignature(notes)) {
       notes = fresh;
       renderNotesList();
@@ -1678,6 +1722,7 @@ function openNote(id) {
   $filenamePinBtn.classList.toggle('active', note.pinned);
 
   $editor.value = note.content;
+  activeVersion = note.version;
   noteHadContent = !!note.content.trim();
   $emptyState.style.display = 'none';
   $editor.parentElement.style.display = 'flex';
@@ -1691,6 +1736,7 @@ function openNote(id) {
   retryCount = 0;
   clearTimeout(retryTimer);
   hideSaveIndicator();
+  hideConflictBar();
 
   pushNoteHash(id);
   renderNotesList();
@@ -1698,12 +1744,14 @@ function openNote(id) {
 
 function showEmpty() {
   activeNoteId = null;
+  activeVersion = null;
   setPreviewMode(false);
   $emptyState.style.display = 'flex';
   $editor.parentElement.style.display = 'none';
   $filenameRow.style.display = 'none';
   $errorBar.style.display = 'none';
   $filenameError.style.display = 'none';
+  hideConflictBar();
   $editor.value = '';
 }
 
@@ -1713,9 +1761,11 @@ function createNewNote(ephemeral = false) {
   isNew = true;
   newNoteFilename = null;
   pendingContent = null;
+  activeVersion = null;
   noteHadContent = false;
   ephemeralArmed = ephemeral;
   updateEphemeralButton();
+  hideConflictBar();
 
   $filenameDisplay.textContent = 'new-note.md';
   $filenameDisplay.style.display = '';
@@ -1760,6 +1810,11 @@ async function save(content) {
 
   isSaving = true;
   showSaving();
+  // Capture what this save is about. The user can switch notes while the
+  // request is in flight; the continuation below must not write state
+  // belonging to note A into whatever note is open when it resolves.
+  const isNewSave = isNew;
+  const savedId = activeNoteId;
 
   try {
     let res;
@@ -1769,19 +1824,26 @@ async function save(content) {
       if (ephemeralArmed) body.ttl_hours = 48;
       res = await apiFetch('/api/notes', { method: 'POST', body });
     } else if (activeNoteId) {
+      const body = { content };
+      if (activeVersion) body.base_version = activeVersion;
       res = await apiFetch(`/api/notes/${encodeURIComponent(activeNoteId)}`, {
         method: 'PATCH',
-        body: { content },
+        body,
       });
     } else {
       isSaving = false;
       return;
     }
 
+    // Did the user move on while we were waiting?
+    const stillCurrent = isNewSave ? isNew : activeNoteId === savedId;
+
     if (res.ok) {
-      if (isNew) {
+      localWriteSeq++; // invalidate any list fetch issued before this write
+      if (isNew && stillCurrent) {
         const created = await res.json();
         activeNoteId = created.id;
+        activeVersion = created.version;
         isNew = false;
         newNoteFilename = null;
         ephemeralArmed = false;
@@ -1789,18 +1851,43 @@ async function save(content) {
         pushNoteHash(created.id);
         $filenameDisplay.textContent = created.filename;
       }
-      pendingContent = null;
-      retryCount = 0;
-      clearTimeout(retryTimer);
-      hideErrorBar();
-      showSaved();
+      if (stillCurrent) {
+        // Only clear the buffer if nothing new was typed while in flight —
+        // otherwise those keystrokes would look saved when they are not.
+        if (pendingContent === content) pendingContent = null;
+        retryCount = 0;
+        clearTimeout(retryTimer);
+        hideErrorBar();
+        showSaved();
+        if (!isNewSave) {
+          // PATCH returns the stored note — adopt its version as our new base
+          try {
+            const updated = await res.json();
+            if (updated && updated.version) activeVersion = updated.version;
+          } catch {
+            // 204 (trashed) or empty body — nothing to adopt
+          }
+        }
+      }
       // Refresh the list
       const listRes = await apiFetch('/api/notes?limit=200');
       if (listRes.ok) {
         notes = await listRes.json();
         renderNotesList();
       }
-    } else {
+    } else if (res.status === 409) {
+      // Someone else (AI agent, another device) wrote while we had it open.
+      // Never retry — that is exactly the overwrite we are preventing.
+      if (!stillCurrent) return; // user moved on; not their problem any more
+      let theirs = null;
+      try {
+        const data = await res.json();
+        theirs = data && data.detail ? data.detail : null;
+      } catch {
+        // fall through to a version-less conflict
+      }
+      showConflictBar(theirs);
+    } else if (stillCurrent) {
       showErrorBar('Could not save – server returned an error');
       scheduleRetry(content);
     }
@@ -1883,6 +1970,97 @@ function showErrorBar(msg) {
 
 function hideErrorBar() {
   $errorBar.style.display = 'none';
+}
+
+// === SECTION: CONFLICT HANDLING ===
+const $conflictBar = document.getElementById('conflict-bar');
+const $conflictBarMsg = document.getElementById('conflict-bar-msg');
+const $conflictBarReload = document.getElementById('conflict-bar-reload');
+const $conflictBarKeep = document.getElementById('conflict-bar-keep');
+
+// Their version, held until the user picks a side.
+let conflictTheirs = null;
+
+function showConflictBar(detail) {
+  conflictTheirs = detail || null;
+  $conflictBarMsg.textContent = 'This note was changed elsewhere – your edit was not saved';
+  $conflictBar.style.display = 'flex';
+}
+
+function hideConflictBar() {
+  $conflictBar.style.display = 'none';
+  conflictTheirs = null;
+}
+
+// "Load theirs" — discard the local buffer and show what is on disk.
+$conflictBarReload.addEventListener('click', async () => {
+  if (conflictTheirs && typeof conflictTheirs.content === 'string') {
+    $editor.value = conflictTheirs.content;
+    activeVersion = conflictTheirs.version;
+  } else if (activeNoteId) {
+    // No payload (or a stale bar) — refetch
+    try {
+      const r = await apiFetch(`/api/notes/${encodeURIComponent(activeNoteId)}`);
+      if (r.ok) {
+        const fresh = await r.json();
+        $editor.value = fresh.content;
+        activeVersion = fresh.version;
+      }
+    } catch {
+      return; // offline — keep the bar up so the user can retry
+    }
+  }
+  pendingContent = null;
+  clearTimeout(saveTimer);
+  if (isPreviewMode) setPreviewMode(true); // re-render with the new content
+  hideConflictBar();
+  showSaved();
+});
+
+// "Keep mine" — deliberately overwrite. Their text is not lost: the backend
+// snapshots it into .history/ before writing.
+$conflictBarKeep.addEventListener('click', () => {
+  if (conflictTheirs && conflictTheirs.version) {
+    activeVersion = conflictTheirs.version; // rebase onto theirs, then overwrite
+  }
+  const mine = $editor.value;
+  hideConflictBar();
+  save(mine);
+});
+
+// Pull a remote change into the open editor when it is safe to do so:
+// only when the user has nothing unsaved and no save is in flight.
+// `seq` is the localWriteSeq captured when the list was requested — if a local
+// write landed since, this payload predates it and must be discarded.
+function syncActiveNoteFrom(list, seq) {
+  if (seq !== localWriteSeq) return;                 // stale snapshot
+  if (!activeNoteId || isNew) return;
+  if (pendingContent !== null || isSaving) return;   // local edits win; never clobber
+  if ($conflictBar.style.display === 'flex') return; // a decision is already pending
+  const fresh = list.find(n => n.id === activeNoteId);
+  if (!fresh || !fresh.version) return;
+  if (fresh.version === activeVersion) return;       // unchanged
+  if (fresh.content === $editor.value) {             // same text, just rebase
+    activeVersion = fresh.version;
+    return;
+  }
+  // A debounced autosave may still be armed from keystrokes that were already
+  // saved; it would fire with the pre-swap text and overwrite what we just took.
+  clearTimeout(saveTimer);
+  // Preserve the user's place — setting .value alone jumps the caret to the end
+  const hadFocus = document.activeElement === $editor;
+  const selStart = $editor.selectionStart;
+  const selEnd = $editor.selectionEnd;
+  const scrollTop = $editor.scrollTop;
+  $editor.value = fresh.content;
+  if (hadFocus) {
+    const max = fresh.content.length;
+    $editor.setSelectionRange(Math.min(selStart, max), Math.min(selEnd, max));
+    $editor.scrollTop = scrollTop;
+  }
+  activeVersion = fresh.version;
+  noteHadContent = !!fresh.content.trim();
+  if (isPreviewMode) setPreviewMode(true); // re-render preview with new content
 }
 
 // === SECTION: WIKI LINKS ===
@@ -2255,6 +2433,8 @@ async function doRename() {
       if (res.ok) {
         const created = await res.json();
         activeNoteId = created.id;
+        activeVersion = created.version;
+        localWriteSeq++;
         isNew = false;
         newNoteFilename = null;
         ephemeralArmed = false;
@@ -2460,7 +2640,12 @@ $historyRestore.addEventListener('click', async () => {
     if (res.ok) {
       const updated = await res.json();
       $editor.value = updated.content;
+      // Restore is a deliberate overwrite, so no base_version is sent — but we
+      // must rebase onto the result or the next autosave conflicts with itself.
+      activeVersion = updated.version;
+      localWriteSeq++;
       pendingContent = null;
+      if (isPreviewMode) setPreviewMode(true);
       closeHistory();
       showSaved();
       loadNotes();

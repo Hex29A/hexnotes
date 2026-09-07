@@ -413,6 +413,19 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
   text-overflow: ellipsis;
 }
 #filename-display:hover { color: var(--accent); }
+#ephemeral-badge {
+  display: none;
+  align-items: center;
+  margin-left: 4px;
+  padding: 2px 7px;
+  border-radius: 9999px;
+  color: #b07d0a;
+  background: rgba(240, 180, 41, 0.15);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+:root.dark #ephemeral-badge { color: #f0c75e; }
 #filename-edit-btn {
   padding: 8px 12px;
   font-size: 14px;
@@ -1143,6 +1156,7 @@ mark {
         <button id="filename-back-btn" title="Back (Alt+←)">←</button>
         <span id="filename-icon">📄</span>
         <span id="filename-display"></span>
+        <span id="ephemeral-badge" aria-live="polite"></span>
         <input type="text" id="filename-input" spellcheck="false">
         <button id="filename-edit-btn" title="Rename">✎</button>
         <button id="filename-pin-btn" title="Pin to top">📌</button>
@@ -1254,6 +1268,7 @@ let activeNoteId = null;
 let isNew = false;
 let newNoteFilename = null;
 let ephemeralArmed = false;  // nasta nya not blir ephemeral (48h)
+let activeExpiresAt = null;
 let pendingContent = null;
 // Version (content hash) the open editor is based on. Sent as base_version on
 // PATCH so the backend can reject a write that would clobber someone else's.
@@ -1293,6 +1308,7 @@ const $notesList = document.getElementById('notes-list');
 const $editorArea = document.getElementById('editor-area');
 const $filenameRow = document.getElementById('filename-row');
 const $filenameDisplay = document.getElementById('filename-display');
+const $ephemeralBadge = document.getElementById('ephemeral-badge');
 const $filenameInput = document.getElementById('filename-input');
 const $filenameEditBtn = document.getElementById('filename-edit-btn');
 const $filenameDeleteBtn = document.getElementById('filename-delete-btn');
@@ -1450,8 +1466,19 @@ function refreshEphemeralBadges() {
   for (const el of document.querySelectorAll('.eph-ttl')) {
     el.textContent = '\u23f3 ' + ttlLabel(el.dataset.expiresAt);
   }
+  updateEphemeralBadge();
 }
 setInterval(refreshEphemeralBadges, 60000);
+
+function updateEphemeralBadge() {
+  const isEphemeral = (isNew && ephemeralArmed) ||
+    (!!activeExpiresAt && new Date(activeExpiresAt) > new Date());
+  $ephemeralBadge.style.display = isEphemeral ? 'inline-flex' : 'none';
+  if (!isEphemeral) return;
+  $ephemeralBadge.textContent = isNew
+    ? '\u23f3 Ephemeral - 48h'
+    : '\u23f3 Ephemeral - ' + ttlLabel(activeExpiresAt);
+}
 
 function makeNoteCard(n) {
   const card = document.createElement('div');
@@ -1708,9 +1735,12 @@ function openNote(id) {
   activeNoteId = id;
   isNew = false;
   newNoteFilename = null;
+  ephemeralArmed = false;
+  activeExpiresAt = note.expires_at;
   localStorage.setItem('hexnotes_lastNote', id);
 
   $filenameDisplay.textContent = note.filename;
+  updateEphemeralBadge();
   $filenameDisplay.style.display = '';
   $filenameEditBtn.style.display = '';
   $filenameInput.style.display = 'none';
@@ -1745,6 +1775,9 @@ function openNote(id) {
 function showEmpty() {
   activeNoteId = null;
   activeVersion = null;
+  activeExpiresAt = null;
+  ephemeralArmed = false;
+  updateEphemeralBadge();
   setPreviewMode(false);
   $emptyState.style.display = 'flex';
   $editor.parentElement.style.display = 'none';
@@ -1764,7 +1797,9 @@ function createNewNote(ephemeral = false) {
   activeVersion = null;
   noteHadContent = false;
   ephemeralArmed = ephemeral;
+  activeExpiresAt = null;
   updateEphemeralButton();
+  updateEphemeralBadge();
   hideConflictBar();
 
   $filenameDisplay.textContent = 'new-note.md';
@@ -1786,8 +1821,8 @@ function createNewNote(ephemeral = false) {
 
   if (isMobile) hideMobileList();
 
-  // Let the user name the note right away — focus lands in the filename field
-  startRename();
+  // Use the normal date-and-slug filename on first save; writing begins now.
+  $editor.focus();
 }
 
 // === SECTION: AUTOSAVE ===
@@ -1847,9 +1882,11 @@ async function save(content) {
         isNew = false;
         newNoteFilename = null;
         ephemeralArmed = false;
+        activeExpiresAt = created.expires_at;
         localStorage.setItem('hexnotes_lastNote', created.id);
         pushNoteHash(created.id);
         $filenameDisplay.textContent = created.filename;
+        updateEphemeralBadge();
       }
       if (stillCurrent) {
         // Only clear the buffer if nothing new was typed while in flight —
@@ -1863,7 +1900,11 @@ async function save(content) {
           // PATCH returns the stored note — adopt its version as our new base
           try {
             const updated = await res.json();
-            if (updated && updated.version) activeVersion = updated.version;
+            if (updated && updated.version) {
+              activeVersion = updated.version;
+              activeExpiresAt = updated.expires_at;
+              updateEphemeralBadge();
+            }
           } catch {
             // 204 (trashed) or empty body — nothing to adopt
           }
@@ -2039,6 +2080,8 @@ function syncActiveNoteFrom(list, seq) {
   if ($conflictBar.style.display === 'flex') return; // a decision is already pending
   const fresh = list.find(n => n.id === activeNoteId);
   if (!fresh || !fresh.version) return;
+  activeExpiresAt = fresh.expires_at;
+  updateEphemeralBadge();
   if (fresh.version === activeVersion) return;       // unchanged
   if (fresh.content === $editor.value) {             // same text, just rebase
     activeVersion = fresh.version;
@@ -2438,10 +2481,12 @@ async function doRename() {
         isNew = false;
         newNoteFilename = null;
         ephemeralArmed = false;
+        activeExpiresAt = created.expires_at;
         noteHadContent = !!created.content.trim();
         localStorage.setItem('hexnotes_lastNote', created.id);
         pushNoteHash(created.id);
         $filenameDisplay.textContent = created.filename;
+        updateEphemeralBadge();
         cancelRename();
         $editor.focus();
         const listRes = await apiFetch('/api/notes?limit=200');
@@ -2465,9 +2510,11 @@ async function doRename() {
     if (res.ok) {
       const updated = await res.json();
       activeNoteId = updated.id;
+      activeExpiresAt = updated.expires_at;
       localStorage.setItem('hexnotes_lastNote', updated.id);
       history.replaceState(history.state, '', '#' + encodeURIComponent(updated.id));
       $filenameDisplay.textContent = updated.filename;
+      updateEphemeralBadge();
       cancelRename();
       // Refresh list
       const listRes = await apiFetch('/api/notes?limit=200');
@@ -2975,7 +3022,7 @@ $fab.addEventListener('click', () => createNewNote(false));
       createNewNote(true);
     }, HOLD_MS);
   }
-  function cancel(fireClick) {
+  function cancel(e) {
     if (timer) { clearTimeout(timer); timer = null; }
     $fab.classList.remove('holding');
     document.getElementById('fab-hint').classList.remove('visible');
@@ -2984,8 +3031,8 @@ $fab.addEventListener('click', () => createNewNote(false));
   }
   $fab.addEventListener('touchstart', start, { passive: true });
   $fab.addEventListener('touchend', cancel);
-  $fab.addEventListener('touchmove', () => cancel(false), { passive: true });
-  $fab.addEventListener('touchcancel', () => cancel(false));
+  $fab.addEventListener('touchmove', cancel, { passive: true });
+  $fab.addEventListener('touchcancel', cancel);
   // Blockera den syntetiska clicken efter ett langtryck
   $fab.addEventListener('click', e => {
     if (longFired) { e.stopImmediatePropagation(); longFired = false; }
@@ -3007,7 +3054,6 @@ function openToday() {
     return;
   }
   createNewNote();
-  cancelRename(); // createNewNote opens the filename field — the name is already decided
   newNoteFilename = today + '.md';
   $filenameDisplay.textContent = newNoteFilename;
   $editor.focus();

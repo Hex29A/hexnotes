@@ -1,5 +1,8 @@
-const CACHE = 'hexnotes-v4';
-const STATIC = ['/', '/index.html', '/manifest.json', '/icon-192.png', '/icon-512.png'];
+const CACHE = 'hexnotes-v5';
+const STATIC = [
+  '/', '/index.html', '/manifest.json', '/icon-192.png', '/icon-512.png',
+  '/vendor/marked-15.0.12.min.js', '/vendor/purify-3.4.15.min.js',
+];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(STATIC)));

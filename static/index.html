@@ -18,8 +18,8 @@ try {
 <link rel="icon" href="/icon-192.png">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
+<script src="/vendor/marked-15.0.12.min.js"></script>
+<script src="/vendor/purify-3.4.15.min.js"></script>
 <style>
 /* === SECTION: CSS RESET & VARIABLES === */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1454,6 +1454,21 @@ function escapeHtml(str) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// Renders `text` into `el`, wrapping the first case-insensitive `query` match
+// in <mark>. Plain text when there is no query or no match. `offset` skips a
+// leading prefix that is not part of the searchable text (e.g. the "#" on a tag).
+function setHighlighted(el, text, query, offset = 0) {
+  const q = (query || '').toLowerCase();
+  const idx = q ? text.toLowerCase().indexOf(q, offset) : -1;
+  if (idx < 0) {
+    el.textContent = text;
+    return;
+  }
+  el.innerHTML = escapeHtml(text.slice(0, idx)) +
+    '<mark>' + escapeHtml(text.slice(idx, idx + q.length)) + '</mark>' +
+    escapeHtml(text.slice(idx + q.length));
+}
+
 function ttlLabel(expiresAt) {
   const ms = new Date(expiresAt) - new Date();
   if (ms <= 0) return 'utgången';
@@ -1489,20 +1504,7 @@ function makeNoteCard(n) {
 
   const preview = document.createElement('div');
   preview.className = 'note-card-preview';
-  const q = $searchInput.value.trim().toLowerCase();
-  if (q) {
-    const fname = n.filename;
-    const idx = fname.toLowerCase().indexOf(q);
-    if (idx >= 0) {
-      preview.innerHTML = escapeHtml(fname.slice(0, idx)) +
-        '<mark>' + escapeHtml(fname.slice(idx, idx + q.length)) + '</mark>' +
-        escapeHtml(fname.slice(idx + q.length));
-    } else {
-      preview.textContent = fname;
-    }
-  } else {
-    preview.textContent = n.filename;
-  }
+  setHighlighted(preview, n.filename, $searchInput.value.trim());
 
   const meta = document.createElement('div');
   meta.className = 'note-card-meta';
@@ -1533,20 +1535,7 @@ function makeNoteCard(n) {
   if (n.snippet) {
     const snippetEl = document.createElement('div');
     snippetEl.className = 'note-card-snippet';
-    const q = $searchInput.value.trim().toLowerCase();
-    if (q) {
-      const sl = n.snippet.toLowerCase();
-      const idx = sl.indexOf(q);
-      if (idx >= 0) {
-        snippetEl.innerHTML = escapeHtml(n.snippet.slice(0, idx)) +
-          '<mark>' + escapeHtml(n.snippet.slice(idx, idx + q.length)) + '</mark>' +
-          escapeHtml(n.snippet.slice(idx + q.length));
-      } else {
-        snippetEl.textContent = n.snippet;
-      }
-    } else {
-      snippetEl.textContent = n.snippet;
-    }
+    setHighlighted(snippetEl, n.snippet, $searchInput.value.trim());
     card.appendChild(snippetEl);
   }
 
@@ -2256,15 +2245,7 @@ function wlRender(query) {
     const item = document.createElement('div');
     item.className = 'wikilink-suggest-item' + (i === wlSelectedIdx ? ' selected' : '');
     const label = wlMode === 'tag' ? '#' + s : s;
-    const idx = s.toLowerCase().indexOf(lq);
-    if (lq && idx >= 0) {
-      const off = wlMode === 'tag' ? 1 : 0;
-      item.innerHTML = escapeHtml(label.slice(0, idx + off)) +
-        '<mark>' + escapeHtml(label.slice(idx + off, idx + off + lq.length)) + '</mark>' +
-        escapeHtml(label.slice(idx + off + lq.length));
-    } else {
-      item.textContent = label;
-    }
+    setHighlighted(item, label, lq, wlMode === 'tag' ? 1 : 0);
     // mousedown, not click — keeps focus in the textarea
     item.addEventListener('mousedown', e => { e.preventDefault(); wlInsert(s); });
     $wlSuggest.appendChild(item);
@@ -3243,18 +3224,7 @@ function renderPaletteList(q) {
     item.className = 'palette-item' + (i === paletteSelectedIdx ? ' selected' : '');
     const nameEl = document.createElement('span');
     nameEl.className = 'palette-item-name';
-    if (lq) {
-      const idx = n.filename.toLowerCase().indexOf(lq);
-      if (idx >= 0) {
-        nameEl.innerHTML = escapeHtml(n.filename.slice(0, idx)) +
-          '<mark>' + escapeHtml(n.filename.slice(idx, idx + lq.length)) + '</mark>' +
-          escapeHtml(n.filename.slice(idx + lq.length));
-      } else {
-        nameEl.textContent = n.filename;
-      }
-    } else {
-      nameEl.textContent = n.filename;
-    }
+    setHighlighted(nameEl, n.filename, lq);
     const dateEl = document.createElement('span');
     dateEl.className = 'palette-item-date';
     dateEl.textContent = relativeDate(n.updated_at);

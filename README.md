@@ -560,6 +560,15 @@ Also keep in mind that filesystem backups of `notes/` contain copies of everythi
 - All filenames from clients are sanitized; history versions and trash names are strictly validated — no path traversal into or out of `notes/`
 - Nothing is ever overwritten: trash entries are timestamped, restores get a unique name on collision, history snapshots have microsecond timestamps
 - All tokens have full access (there are no scopes) — trash and history sit at the same trust level as the notes themselves
+- Token and admin-secret comparisons are constant-time; `tokens.json` is written mode `0600`
+- Rendered markdown is sanitized with DOMPurify, and every response carries a Content-Security-Policy. `connect-src 'self'` means even a successful XSS could not send your token or notes to another host
+- `marked` and `DOMPurify` are pinned and served from `static/vendor/` rather than a CDN — a CDN with the power to swap out the sanitizer could read the token straight out of `localStorage`
+
+**Known exposure, accepted for a single-user private deployment:**
+- The API token is stored in `localStorage`, so any XSS that gets past DOMPurify and the CSP can read it
+- `ADMIN_SECRET` is a human-chosen password with no rate limiting or lockout — it must be long and random, and the app should not be exposed to the open internet without TLS (and ideally an IP allowlist in Nginx Proxy Manager)
+- `/docs` (Swagger UI) is reachable without a token. It only reveals the API shape — every endpoint behind it still requires auth — but you can set `docs_url=None` in `backend/main.py` to remove it
+- The container runs as root. Running as a non-root user is safer, but changing it now requires `chown`-ing the existing `notes/` volume to match
 
 ---
 

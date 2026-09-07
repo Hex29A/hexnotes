@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -18,7 +19,7 @@ from pydantic import BaseModel
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-APP_VERSION = "1.21.1"  # bump minor for features, major for breaking changes — see CHANGELOG.md
+APP_VERSION = "1.22"  # bump minor for features, major for breaking changes — see CHANGELOG.md
 
 NOTES_PATH = Path("/app/notes")
 TRASH_PATH = NOTES_PATH / ".trash"
@@ -45,6 +46,7 @@ class NoteOut(BaseModel):
     preview: str
     is_timeless: bool
     pinned: bool
+    version: str
     expires_at: Optional[str] = None
     snippet: Optional[str] = None
 
@@ -55,6 +57,9 @@ class NoteCreate(BaseModel):
 
 class NoteUpdate(BaseModel):
     content: str
+    # Optimistic concurrency: the version the client based its edit on.
+    # Omitted → unconditional write (backwards compatible).
+    base_version: Optional[str] = None
 
 class NoteRename(BaseModel):
     new_filename: str
@@ -175,6 +180,16 @@ def _write_note_with_frontmatter(path: Path, content: str, created: Optional[str
 
 
 
+def content_version(content: str) -> str:
+    """Short content hash used as an optimistic-concurrency token.
+
+    Deliberately not derived from mtime: updated_at only has second
+    resolution, so two writes within the same second would be
+    indistinguishable — exactly the race this guards against.
+    """
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
+
+
 def parse_note(path: Path) -> dict:
     raw = path.read_text(encoding="utf-8")
     meta, content = parse_frontmatter(raw)
@@ -213,6 +228,7 @@ def parse_note(path: Path) -> dict:
         "preview": preview,
         "is_timeless": date_str is None,
         "pinned": pinned,
+        "version": content_version(content),
         "expires_at": expires_at,
     }
 
@@ -605,14 +621,31 @@ async def update_note(note_id: str, body: NoteUpdate, _=Depends(require_token)):
 
     path = NOTES_PATH / f"{note_id}.md"
 
+    # Read existing frontmatter for created date and pinned state
+    meta, old_body = parse_frontmatter(path.read_text(encoding="utf-8"))
+
+    # Optimistic concurrency: refuse to clobber a write we never saw.
+    # Checked before the empty-content branch so a stale client cannot
+    # trash a note that changed underneath it either.
+    if body.base_version is not None:
+        current_version = content_version(old_body)
+        if body.base_version != current_version:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "conflict",
+                    "message": "The note was changed by someone else",
+                    "version": current_version,
+                    "content": old_body,
+                },
+            )
+
     # Empty content → move to trash
     if not body.content or not body.content.strip():
         _move_to_trash(note_id)
         invalidate_delete(note_id)
         return JSONResponse(status_code=204, content=None)
 
-    # Read existing frontmatter for created date and pinned state
-    meta, old_body = parse_frontmatter(path.read_text(encoding="utf-8"))
     if old_body != body.content:
         _snapshot_note(note_id)
     created = meta.get("created")

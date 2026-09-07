@@ -9,6 +9,18 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.23 (2026-09-07)
+
+- **New-note focus.** Creating a note now puts focus directly in the editor on
+  iOS and desktop. The normal date-and-slug filename is still generated on the
+  first save; filename editing remains available through the rename control.
+- **Ephemeral confirmation.** A visible `Ephemeral - 48h` badge now appears in
+  the editor header as soon as a long-press creates an ephemeral note. After
+  saving, it becomes a live remaining-time indicator, matching the sidebar
+  card badge.
+- **Long-press reliability.** Releasing the mobile FAB after a successful hold
+  now correctly suppresses its synthetic normal-click event.
+
 ## 1.22 (2026-09-07)
 
 _Changelog entries are in English from this version on._

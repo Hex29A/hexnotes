@@ -64,11 +64,16 @@ hexnotes/
 
 Filnamnet genereras vid skapandet men kan när som helst ändras manuellt via rename-funktionen i UI:t eller via `POST /api/notes/{id}/rename`. Datumet i default-filnamnet är alltid skapandedatum – systemet eller autospar ändrar aldrig filnamnet automatiskt. Endast användaren kan byta namn.
 
-### Default: datum + slug
+### Default: datum
+
+> **Not:** slug-generering från första textraden byggdes aldrig färdigt och togs
+> bort i 1.24. Default-filnamnet är bara datumet – vilket också är det som gör
+> `Ctrl+D` (dagens note) möjligt, eftersom dagens fil måste ha ett förutsägbart
+> namn. `README.md` beskriver det faktiska beteendet.
 
 ```
-2025-04-03-docker-compose-tips.md
-2025-04-03-untitled.md        ← om användaren inte angett namn
+2025-04-03.md
+2025-04-03-2.md               ← vid kollision samma dag
 ```
 
 ### Tidlös note (inget datum)
@@ -81,12 +86,9 @@ todo.md
 snippets.md
 ```
 
-### Regler för slug-generering (används bara om användaren inte angett filnamn)
+### Regler för default-filnamn (används bara om användaren inte angett filnamn)
 
-- Första raden i texten används som slug
-- Lowercase, mellanslag → bindestreck
-- Specialtecken och `#taggar` stripas
-- Max 60 tecken i slug-delen
+- Dagens datum, `YYYY-MM-DD.md`
 - Kollision med befintlig fil → suffix `-2`, `-3`
 - `.md`-extension läggs alltid till automatiskt om den saknas
 
@@ -169,7 +171,7 @@ Skapa ny note.
 ```json
 { "content": "Text\n\n#tagg", "filename": "ideas.md" }
 ```
-`filename` är valfritt. Om det utelämnas genereras `YYYY-MM-DD-slug.md`.
+`filename` är valfritt. Om det utelämnas genereras `YYYY-MM-DD.md`.
 Kollision returnerar `409 Conflict`.
 
 #### `GET /api/notes/{id}`

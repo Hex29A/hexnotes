@@ -1,39 +1,9 @@
 from backend.main import (
-    generate_slug,
     extract_tags,
     parse_frontmatter,
-    strip_frontmatter,
     created_at_from_filename,
     sanitize_filename,
 )
-
-
-# === Slug generation ===
-
-def test_slug_basic():
-    assert generate_slug("Docker compose tips") == "docker-compose-tips"
-
-
-def test_slug_strips_tags():
-    assert generate_slug("Min anteckning #docker #linux") == "min-anteckning"
-
-
-def test_slug_strips_special_chars():
-    assert generate_slug("Hej! Vad händer?") == "hej-vad-händer"
-
-
-def test_slug_max_length():
-    long = "a" * 100
-    assert len(generate_slug(long)) <= 60
-
-
-def test_slug_empty_returns_untitled():
-    assert generate_slug("") == "untitled"
-    assert generate_slug("   ") == "untitled"
-
-
-def test_slug_only_tags_returns_untitled():
-    assert generate_slug("#docker #linux") == "untitled"
 
 
 # === Tag extraction ===
@@ -78,7 +48,7 @@ def test_parse_frontmatter_created():
     assert str(meta["created"]) == "2025-04-03"
 
 
-def test_strip_frontmatter_returns_content():
+def test_parse_frontmatter_returns_body_without_frontmatter():
     _, body = parse_frontmatter(FRONTMATTER_DOC)
     assert body.strip() == "Innehåll här"
 

@@ -5,8 +5,7 @@ import os
 import re
 import secrets
 import shutil
-import unicodedata
-from datetime import datetime, date, UTC
+from datetime import datetime, date, timedelta, UTC
 from pathlib import Path
 from typing import Optional
 
@@ -19,13 +18,46 @@ from pydantic import BaseModel
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-APP_VERSION = "1.23"  # bump minor for features, major for breaking changes — see CHANGELOG.md
+APP_VERSION = "1.24"  # bump minor for features, major for breaking changes — see CHANGELOG.md
 
 NOTES_PATH = Path("/app/notes")
 TRASH_PATH = NOTES_PATH / ".trash"
 TOKENS_FILE = Path("/app/tokens.json")
 
 app = FastAPI(title="HexNotes", version=APP_VERSION, docs_url="/docs", redoc_url=None)
+
+
+# Defence in depth for the one place untrusted-ish content is rendered: note
+# markdown. DOMPurify is the primary XSS guard; if it is ever bypassed, the CSP
+# still blocks loading foreign scripts and — via connect-src — stops a payload
+# from posting the localStorage API token off-box.
+# 'unsafe-inline' for scripts is unavoidable: index.html is a single file with
+# inline <script> blocks served straight off disk, so there is no nonce to add.
+CSP = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    "font-src 'self' https://fonts.gstatic.com; "
+    "img-src 'self' data:; "
+    "connect-src 'self'; "
+    "form-action 'none'; "
+    "frame-ancestors 'none'; "
+    "base-uri 'none'; "
+    "object-src 'none'"
+)
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    # /docs is Swagger UI, which pulls its own JS/CSS from a CDN — applying the
+    # app CSP there would just break it. The app itself never loads /docs.
+    if not request.url.path.startswith("/docs"):
+        response.headers.setdefault("Content-Security-Policy", CSP)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    return response
 
 # ---------------------------------------------------------------------------
 # In-memory token list (source of truth at runtime)
@@ -117,13 +149,6 @@ def extract_tags(text: str) -> list[str]:
     return sorted(set(TAG_RE.findall(text)))
 
 
-def strip_frontmatter(raw: str) -> str:
-    m = FRONTMATTER_RE.match(raw)
-    if m:
-        return raw[m.end():]
-    return raw
-
-
 def parse_frontmatter(raw: str) -> tuple[dict, str]:
     m = FRONTMATTER_RE.match(raw)
     meta = {}
@@ -134,15 +159,6 @@ def parse_frontmatter(raw: str) -> tuple[dict, str]:
             meta = {}
     body = raw[m.end():] if m else raw
     return meta, body
-
-
-def generate_slug(text: str, max_len: int = 60) -> str:
-    text = TAG_RE.sub("", text)
-    text = text.strip().lower()
-    text = re.sub(r"[^a-z0-9åäö]+", "-", text)
-    text = text.strip("-")
-    text = re.sub(r"-{2,}", "-", text)
-    return text[:max_len] if text else "untitled"
 
 
 def sanitize_filename(filename: str) -> str:
@@ -180,6 +196,15 @@ def _write_note_with_frontmatter(path: Path, content: str, created: Optional[str
 
 
 
+def _first_line(content: str, max_len: int = 80) -> str:
+    """First non-blank line, truncated — used for every note/trash preview."""
+    for line in content.strip().splitlines():
+        stripped = line.strip()
+        if stripped:
+            return stripped[:max_len]
+    return ""
+
+
 def content_version(content: str) -> str:
     """Short content hash used as an optimistic-concurrency token.
 
@@ -210,13 +235,7 @@ def parse_note(path: Path) -> dict:
     pinned = bool(meta.get("pinned", False))
     expires_at = str(meta["expires_at"]) if meta.get("expires_at") else None
 
-    first_line = ""
-    for line in content.strip().splitlines():
-        stripped = line.strip()
-        if stripped:
-            first_line = stripped
-            break
-    preview = first_line[:80] if first_line else ""
+    preview = _first_line(content)
 
     return {
         "id": stem,
@@ -337,14 +356,6 @@ def _trash_meta(p: Path) -> tuple[str, str]:
     return p.name, mtime
 
 
-def _first_line(content: str) -> str:
-    for line in content.strip().splitlines():
-        stripped = line.strip()
-        if stripped:
-            return stripped[:80]
-    return ""
-
-
 # ---------------------------------------------------------------------------
 # Token helpers
 # ---------------------------------------------------------------------------
@@ -364,8 +375,12 @@ def _save_tokens_to_file():
             json.dumps({"tokens": TOKENS}, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
-    except Exception:
-        pass
+        # Bearer tokens in cleartext — keep them off world-readable mode bits.
+        os.chmod(TOKENS_FILE, 0o600)
+    except OSError as exc:
+        # Losing this write means a token that works until restart, then
+        # vanishes. Silent failure would be genuinely confusing.
+        print(f"[tokens] failed to persist {TOKENS_FILE}: {exc}", flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -377,8 +392,15 @@ async def require_token(request: Request) -> str:
     if not auth.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
     token = auth[7:]
-    valid = {t["token"] for t in TOKENS}
-    if token not in valid:
+    # compare_digest against every token: constant-time per comparison and no
+    # early exit, so a wrong token leaks nothing through response timing.
+    # Compared as bytes — the str form raises TypeError on non-ASCII input.
+    token_b = token.encode("utf-8", "surrogateescape")
+    matched = False
+    for t in TOKENS:
+        if secrets.compare_digest(token_b, str(t["token"]).encode("utf-8")):
+            matched = True
+    if not matched:
         raise HTTPException(status_code=401, detail="Invalid token")
     return token
 
@@ -389,7 +411,9 @@ async def require_admin(request: Request) -> str:
         raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
     token = auth[7:]
     admin_secret = os.environ.get("ADMIN_SECRET", "")
-    if not admin_secret or token != admin_secret:
+    if not admin_secret or not secrets.compare_digest(
+        token.encode("utf-8", "surrogateescape"), admin_secret.encode("utf-8")
+    ):
         raise HTTPException(status_code=401, detail="Unauthorized")
     return token
 
@@ -466,7 +490,8 @@ async def startup():
     if not TOKENS_FILE.exists():
         try:
             TOKENS_FILE.write_text('{"tokens": []}', encoding="utf-8")
-        except Exception:
+            os.chmod(TOKENS_FILE, 0o600)
+        except OSError:
             pass
     _load_tokens_from_file()
     TRASH_PATH.mkdir(parents=True, exist_ok=True)
@@ -598,8 +623,6 @@ async def create_note(body: NoteCreate, _=Depends(require_token)):
 
     expires_at = None
     if body.ttl_hours:
-        expires_at = (datetime.now(UTC).isoformat(timespec="seconds"))
-        from datetime import timedelta
         expires_at = (datetime.now(UTC) + timedelta(hours=body.ttl_hours)).isoformat(timespec="seconds")
 
     _write_note_with_frontmatter(path, content, created, expires_at=expires_at)
@@ -729,16 +752,10 @@ async def list_note_history(note_id: str, _=Depends(require_token)):
             if not VERSION_RE.match(version):
                 continue
             _meta, content = parse_frontmatter(f.read_text(encoding="utf-8"))
-            first_line = ""
-            for line in content.strip().splitlines():
-                stripped = line.strip()
-                if stripped:
-                    first_line = stripped
-                    break
             entries.append({
                 "version": version,
                 "timestamp": _version_timestamp(version),
-                "preview": first_line[:80],
+                "preview": _first_line(content),
             })
     return entries
 

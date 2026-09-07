@@ -9,6 +9,41 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.24 (2026-09-07)
+
+Security and cleanup pass. No behaviour changes.
+
+- **Markdown libraries are now served locally.** `marked` and `DOMPurify` were
+  loaded from jsDelivr at a floating "latest" version with no integrity check.
+  Whoever controls that CDN could have replaced `purify.min.js` — disabling the
+  XSS sanitizer and reading the API token out of `localStorage` in the same
+  move. Both are now pinned, committed under `static/vendor/`, and cached by the
+  service worker, so the rendered preview also works fully offline. See
+  `static/vendor/README.md` for versions, hashes and upgrade steps.
+- **Security headers on every response.** A Content-Security-Policy plus
+  `X-Content-Type-Options`, `Referrer-Policy` and `X-Frame-Options`. The CSP's
+  `connect-src 'self'` means that even a successful XSS cannot post your token
+  or notes to another host. `/docs` is exempt so Swagger UI still works.
+- **Constant-time token comparison.** Token and admin-secret checks use
+  `secrets.compare_digest`, removing a (marginal) timing side channel. As a
+  side effect, a token containing non-ASCII characters now returns `401`
+  instead of `500`.
+- **`tokens.json` is written with mode `0600`** instead of inheriting the
+  default umask.
+- **Failed token writes are logged** rather than silently swallowed — such a
+  failure produced a token that worked until the next restart, then vanished.
+- **Redundant code removed:** unused `unicodedata` import, a dead
+  double-assignment of `expires_at` and a function-local `timedelta` import in
+  `create_note`, three copies of the "first non-blank line" preview loop
+  (now one `_first_line` helper), and four copies of the search-highlight
+  markup in the frontend (now one `setHighlighted` helper).
+- **Dead functions removed:** `generate_slug()` and `strip_frontmatter()`.
+  Neither was reachable from the app — only from tests. Slug filenames were
+  superseded by plain `YYYY-MM-DD.md` names (a slug would break `Ctrl+D`, which
+  needs today's filename to be predictable), and `strip_frontmatter` duplicated
+  the body that `parse_frontmatter` already returns. The stale slug section in
+  `agents.md` has been corrected to match the shipped behaviour.
+
 ## 1.23 (2026-09-07)
 
 - **New-note focus.** Creating a note now puts focus directly in the editor on

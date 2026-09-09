@@ -1,4 +1,4 @@
-const CACHE = 'hexnotes-v6';
+const CACHE = 'hexnotes-v7';
 const STATIC = [
   '/', '/index.html', '/manifest.json', '/icon-192.png', '/icon-512.png',
   '/vendor/marked-15.0.12.min.js', '/vendor/purify-3.4.15.min.js',

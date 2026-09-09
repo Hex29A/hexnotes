@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import json
+import mimetypes
 import os
 import re
 import secrets
@@ -15,10 +16,17 @@ from fastapi.responses import PlainTextResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+# The container's system mimetypes database has no .woff2 entry, so
+# StaticFiles was serving it as text/plain — combined with the
+# X-Content-Type-Options: nosniff header below, Safari refuses to apply a
+# font served with the wrong MIME type and silently falls back to a system
+# font. Chrome/Firefox aren't as strict, so this only showed on iOS.
+mimetypes.add_type("font/woff2", ".woff2")
+
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-APP_VERSION = "1.25"  # bump minor for features, major for breaking changes — see CHANGELOG.md
+APP_VERSION = "1.26"  # bump minor for features, major for breaking changes — see CHANGELOG.md
 
 NOTES_PATH = Path("/app/notes")
 TRASH_PATH = NOTES_PATH / ".trash"

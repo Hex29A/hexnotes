@@ -9,6 +9,17 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.26 (2026-09-09)
+
+- **Fixed: vendored font actually applying on iOS.** The 1.25 fix vendored
+  the `.woff2` files but the container's mimetypes database has no `.woff2`
+  entry, so `StaticFiles` served them as `text/plain`. Combined with
+  `X-Content-Type-Options: nosniff`, Safari refused to apply a font served
+  with the wrong MIME type and silently fell back to a system font — Chrome/
+  Firefox are more lenient, so it only showed on iOS. `mimetypes.add_type`
+  now registers `font/woff2` explicitly. Service worker cache bumped to
+  force a refetch of the previously-mis-served files.
+
 ## 1.25 (2026-09-09)
 
 - **JetBrains Mono is now vendored, not loaded from Google Fonts.** The

@@ -9,6 +9,17 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.25 (2026-09-09)
+
+- **JetBrains Mono is now vendored, not loaded from Google Fonts.** The
+  Google-hosted stylesheet serves whatever build of the font is current, so
+  the rendered weight could drift under us with no commit to point at — that
+  looked like a "thinner" typeface after a routine update on Google's end.
+  Regular (400) and Bold (700) `.woff2` are now pinned under `static/vendor/`
+  and cached by the service worker, same as `marked`/`DOMPurify`. CSP's
+  `style-src`/`font-src` no longer need the `fonts.googleapis.com` /
+  `fonts.gstatic.com` exceptions.
+
 ## 1.24 (2026-09-07)
 
 Security and cleanup pass. No behaviour changes.

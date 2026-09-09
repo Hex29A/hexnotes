@@ -17,12 +17,25 @@ try {
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="icon" href="/icon-192.png">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
 <script src="/vendor/marked-15.0.12.min.js"></script>
 <script src="/vendor/purify-3.4.15.min.js"></script>
 <style>
 /* === SECTION: CSS RESET & VARIABLES === */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url('/vendor/JetBrainsMono-2.304-Regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  src: url('/vendor/JetBrainsMono-2.304-Bold.woff2') format('woff2');
+}
 
 :root {
   --bg-primary: #0d0d0d;

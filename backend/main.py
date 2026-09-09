@@ -18,7 +18,7 @@ from pydantic import BaseModel
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-APP_VERSION = "1.24"  # bump minor for features, major for breaking changes — see CHANGELOG.md
+APP_VERSION = "1.25"  # bump minor for features, major for breaking changes — see CHANGELOG.md
 
 NOTES_PATH = Path("/app/notes")
 TRASH_PATH = NOTES_PATH / ".trash"
@@ -36,8 +36,8 @@ app = FastAPI(title="HexNotes", version=APP_VERSION, docs_url="/docs", redoc_url
 CSP = (
     "default-src 'self'; "
     "script-src 'self' 'unsafe-inline'; "
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-    "font-src 'self' https://fonts.gstatic.com; "
+    "style-src 'self' 'unsafe-inline'; "
+    "font-src 'self'; "
     "img-src 'self' data:; "
     "connect-src 'self'; "
     "form-action 'none'; "

@@ -9,6 +9,14 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.28 (2026-09-09)
+
+- **Even darker `--text-muted` in light theme, and fixed the pinned-light
+  variant.** 1.27 only darkened the `prefers-color-scheme: light` (auto)
+  definition to `#707070` — the `:root[data-theme="light"]` block used when
+  the theme is explicitly pinned to light was untouched and still `#888888`.
+  Both are now `#575757`.
+
 ## 1.27 (2026-09-09)
 
 - **Darker muted text for readability.** `--text-muted` (filenames in the

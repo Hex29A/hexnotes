@@ -1,82 +1,122 @@
 """Generate the PWA launcher icons (icon-192.png, icon-512.png).
 
-Design: violet vertical gradient on a rounded square, with a white "H"
-monogram built from geometric bars (no font dependency — letterforms drawn
-as rounded rectangles render identically in any build environment).
+Design: green "emalj" hexagon badge - a diagonal gradient fill, a thin
+darker border, a soft gloss highlight, and the HexNotes "folded page"
+glyph in white. Same geometry as static/favicon.svg and the app's
+--accent token (see docs.29a.se/... ikonförslag, 2026-09-09).
 Runs as a RUN step inside the Docker build.
 """
 
 from PIL import Image, ImageDraw
+import math
 import os
 
 
-GRADIENT_TOP = (139, 92, 246)     # #8b5cf6
-GRADIENT_BOTTOM = (91, 33, 182)   # #5b21b6
-ACCENT = (216, 180, 254)          # #d8b4fe — soft highlight
+GRAD_TOP = (0x37, 0xC1, 0x7E)     # #37C17E
+GRAD_BOTTOM = (0x0E, 0x4A, 0x2C)  # #0E4A2C
+BORDER = (0x0B, 0x3A, 0x22)       # #0B3A22
+
+# Flat-top regular hexagon, centered at (50,50) in a 0-100 unit space,
+# radius 44 - identical geometry to static/favicon.svg.
+_HEX_VERTS = [(94, 50), (72, 88.1), (28, 88.1), (6, 50), (28, 11.9), (72, 11.9)]
+_ROUND_R = 10
 
 
-def rounded_mask(size, radius, supersample=4):
-    """Anti-aliased rounded-rectangle alpha mask."""
+def _corner_points(verts, r):
+    """For each vertex, the two points offset by r toward its neighbours -
+    the endpoints of the quadratic curve that rounds that corner."""
+    n = len(verts)
+    out = []
+    for i in range(n):
+        px, py = verts[(i - 1) % n]
+        vx, vy = verts[i]
+        nx, ny = verts[(i + 1) % n]
+        d1x, d1y = px - vx, py - vy
+        l1 = math.hypot(d1x, d1y)
+        d2x, d2y = nx - vx, ny - vy
+        l2 = math.hypot(d2x, d2y)
+        p_in = (vx + d1x / l1 * r, vy + d1y / l1 * r)
+        p_out = (vx + d2x / l2 * r, vy + d2y / l2 * r)
+        out.append((p_in, (vx, vy), p_out))
+    return out
+
+
+def _rounded_hex_polygon(scale, steps=8):
+    """Sample the rounded hexagon outline as a fine polygon, scaled to `scale`px."""
+    corners = _corner_points(_HEX_VERTS, _ROUND_R)
+    pts = []
+    for p_in, vertex, p_out in corners:
+        for i in range(steps + 1):
+            t = i / steps
+            x = (1 - t) ** 2 * p_in[0] + 2 * (1 - t) * t * vertex[0] + t ** 2 * p_out[0]
+            y = (1 - t) ** 2 * p_in[1] + 2 * (1 - t) * t * vertex[1] + t ** 2 * p_out[1]
+            pts.append((x * scale / 100, y * scale / 100))
+    return pts
+
+
+def _hex_mask(size, supersample=4):
     big = size * supersample
     mask = Image.new("L", (big, big), 0)
-    d = ImageDraw.Draw(mask)
-    d.rounded_rectangle([0, 0, big - 1, big - 1], radius=radius * supersample, fill=255)
+    ImageDraw.Draw(mask).polygon(_rounded_hex_polygon(big), fill=255)
     return mask.resize((size, size), Image.LANCZOS)
 
 
-def vertical_gradient(size, top, bottom):
+def _diagonal_gradient(size, top, bottom):
     img = Image.new("RGB", (size, size))
     px = img.load()
     for y in range(size):
-        t = y / (size - 1)
-        r = round(top[0] + (bottom[0] - top[0]) * t)
-        g = round(top[1] + (bottom[1] - top[1]) * t)
-        b = round(top[2] + (bottom[2] - top[2]) * t)
         for x in range(size):
+            t = (x + y) / (2 * (size - 1))
+            r = round(top[0] + (bottom[0] - top[0]) * t)
+            g = round(top[1] + (bottom[1] - top[1]) * t)
+            b = round(top[2] + (bottom[2] - top[2]) * t)
             px[x, y] = (r, g, b)
     return img
 
 
 def make_icon(size):
     s = size
-    # Background: gradient clipped to a rounded square. The monogram stays
-    # well inside the 80% safe zone, so the icon works as maskable too.
-    radius = int(s / 4.4)
-    grad = vertical_gradient(s, GRADIENT_TOP, GRADIENT_BOTTOM)
-    mask = rounded_mask(s, radius)
+    mask = _hex_mask(s)
+    grad = _diagonal_gradient(s, GRAD_TOP, GRAD_BOTTOM)
 
     img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
     img.paste(grad, (0, 0), mask)
 
-    # "H" monogram — two vertical bars + crossbar, all rounded.
-    # Drawn supersampled for crisp edges at small sizes.
+    # Thin darker border along the hex outline.
+    outline = _rounded_hex_polygon(s)
+    ImageDraw.Draw(img).line(
+        outline + [outline[0]], fill=BORDER + (255,),
+        width=max(2, round(s * 0.016)), joint="curve",
+    )
+
+    # Soft gloss highlight, upper-left, clipped to the hex silhouette.
+    gloss = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+    ImageDraw.Draw(gloss).ellipse(
+        [s * 0.10, s * 0.10, s * 0.58, s * 0.44], fill=(255, 255, 255, 90)
+    )
+    gloss.putalpha(Image.composite(gloss.split()[3], Image.new("L", (s, s), 0), mask))
+    img.alpha_composite(gloss)
+
+    # "Folded page" glyph - HexNotes' mark, in white. Supersampled for
+    # crisp edges, like the hex mask above.
     ss = 4
     big = s * ss
+
+    def p(x, y):
+        return (x / 100 * big, y / 100 * big)
+
     glyph = Image.new("RGBA", (big, big), (0, 0, 0, 0))
-    d = ImageDraw.Draw(glyph)
-
-    bar_w = big * 0.13
-    bar_h = big * 0.50
-    gap = big * 0.175          # horizontal distance from center to each bar center
-    cx, cy = big / 2, big / 2
-    r = bar_w / 2
-
-    left_x = cx - gap
-    right_x = cx + gap
-    top_y = cy - bar_h / 2
-    bottom_y = cy + bar_h / 2
-
-    white = (255, 255, 255, 255)
-    d.rounded_rectangle([left_x - bar_w / 2, top_y, left_x + bar_w / 2, bottom_y], radius=r, fill=white)
-    d.rounded_rectangle([right_x - bar_w / 2, top_y, right_x + bar_w / 2, bottom_y], radius=r, fill=white)
-    # Crossbar
-    cross_h = bar_w * 0.92
-    d.rounded_rectangle([left_x, cy - cross_h / 2, right_x, cy + cross_h / 2], radius=cross_h / 2, fill=white)
-
+    ImageDraw.Draw(glyph).polygon(
+        [p(36, 30), p(58, 30), p(66, 38), p(66, 70), p(36, 70)], fill=(255, 255, 255, 255)
+    )
+    fold = Image.new("RGBA", (big, big), (0, 0, 0, 0))
+    ImageDraw.Draw(fold).polygon([p(58, 30), p(66, 38), p(58, 38)], fill=(255, 255, 255, 140))
+    glyph.alpha_composite(fold)
     glyph = glyph.resize((s, s), Image.LANCZOS)
     img.alpha_composite(glyph)
 
-    # Flatten onto near-black so the PNG has no transparency surprises
+    # Flatten onto the app's own dark background - same choice the old
+    # violet icon made, avoids transparent-PWA-icon quirks on install.
     bg = Image.new("RGB", (s, s), "#0d0d0d")
     bg.paste(img, (0, 0), img)
     return bg

@@ -1,4 +1,7 @@
 """Nya tester för v1.20: ephemeral i API + sortering."""
+import re
+
+
 def test_list_includes_expires_at(client, auth):
     r = client.post("/api/notes", json={"content": "syns i listan", "ttl_hours": 24}, headers=auth)
     assert r.status_code == 200
@@ -28,6 +31,6 @@ def test_expired_note_excluded_from_live_section(client, auth, tmp_notes):
     assert mine and datetime.fromisoformat(mine[0]["expires_at"]) <= datetime.now(UTC)
 
 
-def test_version_is_1_20(client):
+def test_health_reports_version(client):
     r = client.get("/health")
-    assert r.json()["version"].startswith("1.2")
+    assert re.fullmatch(r"\d+\.\d+", r.json()["version"])

@@ -9,6 +9,18 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.30 (2026-09-09)
+
+- **Theme toggle no longer buried at the end of the note list, and no
+  longer hidden under the FAB on mobile.** `#trash-bar` (Trash + theme
+  toggle) lived inside the same scrolling container as the note list, so
+  reaching it meant scrolling past every note — and on mobile it then sat
+  right under the "+" FAB, which visually covered the theme button. The
+  sidebar is now a flex column with the note list in its own scrolling
+  `#sidebar-scroll` region and `#trash-bar` docked as a footer outside it,
+  always visible with no scrolling. On mobile the footer gets extra
+  right-padding to clear the FAB's 56px circle.
+
 ## 1.29 (2026-09-09)
 
 - **Fixed the note "floating"/dragging sideways on iOS.** `#editor` and the

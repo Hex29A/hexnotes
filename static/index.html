@@ -198,18 +198,25 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
   overflow: hidden;
 }
 
-/* Sidebar */
+/* Sidebar — trash-bar is a docked footer, sidebar-scroll is the only
+   scrolling region, so the theme toggle never needs a scroll to reach. */
 #sidebar {
   width: 300px;
   min-width: 300px;
   border-right: 1px solid var(--border);
   background: var(--bg-sidebar);
-  overflow-y: auto;
   flex-shrink: 0;
   transition: margin-left 0.2s;
+  display: flex;
+  flex-direction: column;
 }
 #sidebar.collapsed {
   margin-left: -300px;
+}
+#sidebar-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 #notes-list {
   display: flex;
@@ -1029,6 +1036,8 @@ svg.lucide {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
 }
 #btn-theme {
   color: var(--text-muted);
@@ -1108,7 +1117,7 @@ mark {
     display: none;
   }
   #sidebar.mobile-visible {
-    display: block;
+    display: flex;
   }
   #btn-menu { display: none; }
   #btn-back { display: block; }
@@ -1119,6 +1128,9 @@ mark {
   #btn-today { display: none; }
   #btn-sync { display: block; }
   #editor { padding: 12px; }
+  /* Clear the FAB (56px circle, bottom:24px right:24px) so it doesn't sit
+     on top of the theme toggle. */
+  #trash-bar { padding-right: 84px; }
   /* iOS Safari auto-zooms the page on focus for any input/textarea with a
      computed font-size under 16px — that zoomed state is what let the note
      be dragged sideways while editing (and viewing, since the zoom lingers
@@ -1161,9 +1173,11 @@ mark {
   <div id="main">
     <!-- Sidebar -->
     <div id="sidebar">
-      <div id="tag-filters"></div>
-      <div id="collapse-all-bar"><button id="btn-collapse-all">▾ collapse all</button></div>
-      <div id="notes-list"></div>
+      <div id="sidebar-scroll">
+        <div id="tag-filters"></div>
+        <div id="collapse-all-bar"><button id="btn-collapse-all">▾ collapse all</button></div>
+        <div id="notes-list"></div>
+      </div>
       <div id="trash-bar">
         <button id="btn-trash">🗑 Trash</button>
         <button id="btn-theme" title="Theme"></button>

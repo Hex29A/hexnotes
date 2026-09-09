@@ -9,6 +9,14 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.27 (2026-09-09)
+
+- **Darker muted text for readability.** `--text-muted` (filenames in the
+  sidebar note list, dates, secondary labels) was `#888888` in light theme —
+  low contrast on `#f5f5f5`, and combined with JetBrains Mono's regular
+  weight it read as too thin/hard to read, particularly on iOS. Darkened to
+  `#707070`.
+
 ## 1.26 (2026-09-09)
 
 - **Fixed: vendored font actually applying on iOS.** The 1.25 fix vendored

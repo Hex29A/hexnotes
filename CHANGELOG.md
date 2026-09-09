@@ -9,6 +9,16 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.31 (2026-09-09)
+
+- **Rebranded from violet to green**, matching the new app-icon family
+  (hexagon-shaped, shared with docs.29a.se, dash and others). `--accent`/
+  `--accent-dim` swapped in all three theme blocks; `scripts/generate_icons.py`
+  (the build-time PNG generator) now draws the same green "emalj" hexagon
+  with a folded-page glyph instead of the old violet square + "H" monogram.
+  `manifest.json` `theme_color` updated to match; service worker cache
+  bumped to `v8` so installed clients pick up the new icon.
+
 ## 1.30 (2026-09-09)
 
 - **Theme toggle no longer buried at the end of the note list, and no

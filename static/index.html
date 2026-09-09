@@ -1119,6 +1119,13 @@ mark {
   #btn-today { display: none; }
   #btn-sync { display: block; }
   #editor { padding: 12px; }
+  /* iOS Safari auto-zooms the page on focus for any input/textarea with a
+     computed font-size under 16px — that zoomed state is what let the note
+     be dragged sideways while editing (and viewing, since the zoom lingers
+     after switching to preview). 16px here disables that zoom. */
+  #editor, #search-input, #filename-input, #find-input, #palette-input, #auth-token {
+    font-size: 16px;
+  }
 }
 </style>
 </head>

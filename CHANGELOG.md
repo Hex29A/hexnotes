@@ -9,6 +9,16 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.29 (2026-09-09)
+
+- **Fixed the note "floating"/dragging sideways on iOS.** `#editor` and the
+  other text inputs were 14px, under iOS Safari's 16px threshold for
+  disabling auto-zoom-on-focus. Tapping into the editor zoomed the whole
+  page in, which is what made it possible to drag the note sideways — the
+  zoomed state lingered when switching to preview too, so it looked wrong
+  there as well. Bumped to 16px on mobile (`#editor`, `#search-input`,
+  `#filename-input`, `#find-input`, `#palette-input`, `#auth-token`).
+
 ## 1.28 (2026-09-09)
 
 - **Even darker `--text-muted` in light theme, and fixed the pinned-light

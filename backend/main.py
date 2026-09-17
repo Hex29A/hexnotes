@@ -27,7 +27,7 @@ mimetypes.add_type("font/woff2", ".woff2")
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-APP_VERSION = "1.35"  # bump minor for features, major for breaking changes — see CHANGELOG.md
+APP_VERSION = "1.36"  # bump minor for features, major for breaking changes — see CHANGELOG.md
 
 # Upper bound on GET /api/notes?limit=. The frontend asks for 200, so the
 # cap sits above that rather than on it, leaving room to raise the client

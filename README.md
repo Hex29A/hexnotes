@@ -18,7 +18,11 @@ Current version: see `APP_VERSION` in `backend/main.py`, exposed via `GET /healt
 cp .env.example .env
 # Edit .env — set a strong ASCII-only ADMIN_SECRET
 
-# 2. Create empty token file if it doesn't exist
+# 2. Create empty token file if it doesn't exist.
+# Do this BEFORE the first start: tokens.json is bind-mounted as a file, and
+# Docker creates a *directory* in its place if it is missing. The app then
+# starts but silently fails to persist tokens, and every token you create
+# disappears on restart.
 echo '{"tokens": []}' > tokens.json
 
 # 3. Build and start

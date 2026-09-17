@@ -9,6 +9,18 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.36 (2026-09-17)
+
+- **Porten binds till loopback i stället för alla gränssnitt** (#10).
+  `8888:8000` publicerade appen på `0.0.0.0` fast den omvända proxyn når den som
+  `hexnotes:8000` över det delade docker-nätet — mappningen behövs bara för
+  felsökning från värden. Kontrollerat före ändringen: porten svarade inte
+  utifrån, men värdens `iptables INPUT` har policy ACCEPT, så molnbrandväggen
+  var enda lagret. Nu `127.0.0.1:8888:8000`.
+- **README säger varför tokenfilen måste skapas före första start** (#10).
+  `tokens.json` bind-monteras som fil; saknas den skapar Docker en katalog i
+  dess ställe, och appen startar men tappar tyst varje token vid omstart.
+
 ## 1.35 (2026-09-17)
 
 - **Versionshistoriken har ett tak per not** (#6). `_snapshot_note` skrev en ny

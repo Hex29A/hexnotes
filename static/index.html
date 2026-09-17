@@ -1415,15 +1415,40 @@ $authToken.addEventListener('keydown', e => {
 });
 
 // === SECTION: NOTES LIST ===
+
+// Page size for the loop below — not a cap on how many notes the app shows.
+const NOTES_PAGE_SIZE = 200;
+// A runaway guard, nothing more: offset always advances, so the loop ends on
+// its own unless the server ignores offset entirely.
+const NOTES_MAX_PAGES = 50;
+
+// Fetches the whole note list, one page at a time.
+//
+// The sidebar groups and sorts locally (Ephemeral, Pinned, Inbox, tags), and
+// backlinks and wiki-link autocomplete read the content of every note, so the
+// client needs all of them before it can draw. A single hardcoded limit=200
+// meant that once the collection passed 200, the oldest notes simply stopped
+// appearing — no error, nothing to notice. Paging until a short page arrives
+// removes the ceiling instead of moving it.
+async function fetchAllNotes(q) {
+  const all = [];
+  for (let page = 0; page < NOTES_MAX_PAGES; page++) {
+    let url = `/api/notes?limit=${NOTES_PAGE_SIZE}&offset=${page * NOTES_PAGE_SIZE}`;
+    if (q) url += `&q=${encodeURIComponent(q)}`;
+    const res = await apiFetch(url);
+    if (!res.ok) throw new Error('could not fetch notes');
+    const batch = await res.json();
+    all.push(...batch);
+    if (batch.length < NOTES_PAGE_SIZE) break;
+  }
+  return all;
+}
+
 async function loadNotes() {
   try {
     const q = $searchInput.value.trim();
-    let url = '/api/notes?limit=200';
-    if (q) url += `&q=${encodeURIComponent(q)}`;
     const seq = localWriteSeq;
-    const res = await apiFetch(url);
-    if (!res.ok) throw new Error();
-    notes = await res.json();
+    notes = await fetchAllNotes(q);
     syncActiveNoteFrom(notes, seq);
     renderNotesList();
     // Restore active note — URL hash (deep link) wins, then home.md start page
@@ -1463,12 +1488,8 @@ async function pollNotes() {
   if (document.hidden || !apiToken) return;
   try {
     const q = $searchInput.value.trim();
-    let url = '/api/notes?limit=200';
-    if (q) url += `&q=${encodeURIComponent(q)}`;
     const seq = localWriteSeq;
-    const res = await apiFetch(url);
-    if (!res.ok) return;
-    const fresh = await res.json();
+    const fresh = await fetchAllNotes(q);
     syncActiveNoteFrom(fresh, seq);
     if (notesSignature(fresh) !== notesSignature(notes)) {
       notes = fresh;
@@ -1934,10 +1955,11 @@ async function save(content) {
         }
       }
       // Refresh the list
-      const listRes = await apiFetch('/api/notes?limit=200');
-      if (listRes.ok) {
-        notes = await listRes.json();
+      try {
+        notes = await fetchAllNotes();
         renderNotesList();
+      } catch {
+        // Listan hämtas om vid nästa poll
       }
     } else if (res.status === 409) {
       // Someone else (AI agent, another device) wrote while we had it open.
@@ -2504,10 +2526,11 @@ async function doRename() {
         updateEphemeralBadge();
         cancelRename();
         $editor.focus();
-        const listRes = await apiFetch('/api/notes?limit=200');
-        if (listRes.ok) {
-          notes = await listRes.json();
+        try {
+          notes = await fetchAllNotes();
           renderNotesList();
+        } catch {
+          // Listan hämtas om vid nästa poll
         }
       } else if (res.status === 409) {
         $filenameError.textContent = 'A note with that name already exists';
@@ -2532,10 +2555,11 @@ async function doRename() {
       updateEphemeralBadge();
       cancelRename();
       // Refresh list
-      const listRes = await apiFetch('/api/notes?limit=200');
-      if (listRes.ok) {
-        notes = await listRes.json();
+      try {
+        notes = await fetchAllNotes();
         renderNotesList();
+      } catch {
+        // Listan hämtas om vid nästa poll
       }
     } else if (res.status === 409) {
       $filenameError.textContent = 'A note with that name already exists';

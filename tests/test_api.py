@@ -293,3 +293,43 @@ def test_emptying_a_note_returns_204_without_a_body(client, auth):
     r2 = client.patch(f"/api/notes/{note_id}", json={"content": "   "}, headers=auth)
     assert r2.status_code == 204
     assert r2.content == b""
+
+
+# === The contract fetchAllNotes() in the frontend relies on ===
+
+def test_paging_returns_every_note_exactly_once(client, auth):
+    """Klienten hämtar sida för sida tills en kort sida kommer. Det kräver att
+    limit/offset täcker hela listan utan hål eller dubbletter."""
+    total = 25
+    for i in range(total):
+        client.post("/api/notes", json={"content": f"not {i}", "filename": f"sid-{i:03}.md"}, headers=auth)
+
+    page_size = 7
+    seen, offset = [], 0
+    while True:
+        batch = client.get(f"/api/notes?limit={page_size}&offset={offset}", headers=auth).json()
+        seen.extend(n["id"] for n in batch)
+        if len(batch) < page_size:
+            break
+        offset += page_size
+
+    in_one_go = [n["id"] for n in client.get("/api/notes?limit=100", headers=auth).json()]
+    assert len(seen) == len(in_one_go)
+    assert len(set(seen)) == len(seen), "samma not kom med två gånger"
+    assert seen == in_one_go, "sidhämtningen gav en annan ordning än ett svep"
+
+
+def test_paging_with_a_query_is_also_complete(client, auth):
+    for i in range(12):
+        client.post("/api/notes", json={"content": f"träff {i}", "filename": f"q-{i:03}.md"}, headers=auth)
+    client.post("/api/notes", json={"content": "inget alls", "filename": "utan.md"}, headers=auth)
+
+    seen, offset = [], 0
+    while True:
+        batch = client.get(f"/api/notes?limit=5&offset={offset}&q=träff", headers=auth).json()
+        seen.extend(n["id"] for n in batch)
+        if len(batch) < 5:
+            break
+        offset += 5
+    assert len(seen) == 12
+    assert "utan" not in seen

@@ -9,6 +9,21 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.37 (2026-09-17)
+
+- **Notlistan hämtas sida för sida i stället för med ett hårdkodat tak** (#12).
+  Frontenden bad om `limit=200` på fem ställen och paginerade inte, så när
+  beståndet passerade 200 skulle de äldsta noterna tyst sluta synas i sidofältet
+  — utan fel och utan något som antydde att listan var avhuggen. Produktionen låg
+  på 161. `fetchAllNotes()` hämtar nu sidor om `NOTES_PAGE_SIZE` tills en kort
+  sida kommer, vilket tar bort gränsen i stället för att flytta den; `loadNotes`,
+  `pollNotes` och de tre listuppdateringarna efter skrivningar går alla genom
+  den. Tokenvalideringens `limit=1` är kvar som den var.
+
+  Hela listan hämtas fortfarande, inte en sida i taget till gränssnittet:
+  sidofältet grupperar och sorterar lokalt, och backlinks och wiki-autocomplete
+  läser innehållet i varje not.
+
 ## 1.36 (2026-09-17)
 
 - **Porten binds till loopback i stället för alla gränssnitt** (#10).

@@ -9,6 +9,28 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.33 (2026-09-17)
+
+Buggfixar från en genomgång av backend (issues #4, #5, #11).
+
+- **Efemära noter dog vid midnatt UTC i stället för vid sin TTL** (#4). `expires_at`
+  skrevs oquoterat i frontmattern, så YAML läste tillbaka det som ett `datetime`
+  vars `str()` är mellanslagsseparerad. `_sweep_expired` jämförde den strängen mot
+  `datetime.now(UTC).isoformat()`, där `" "` sorterar före `"T"` — så fort datumdelen
+  var lika ansågs noten utgången, upp till ett dygn för tidigt. Jämförelsen sker nu
+  som `datetime` via `parse_expiry()`, och ett oläsligt värde låter noten leva i
+  stället för att slänga den. Samma fel gjorde `expires_at` i API-svaret ogiltig
+  ISO 8601, vilket gav `NaNh kvar` i nedräkningsbadgen på Safari/iOS.
+- **Frontmattern byggs med `yaml.safe_dump`, inte f-strängar** (#5). En nyrad i
+  `created` öppnade tidigare en egen frontmatter-rad, så en not kunde få fält
+  (`pinned`, ett nytt `expires_at`) som inget API-anrop satt. Vanliga noter skrivs
+  byte för byte som förut — kontrollerat mot alla 161 noter i produktion; enda
+  skillnaden är att en numerisk tagg nu citeras korrekt (`tags: ['40', argus]`).
+- **`parse_frontmatter` åt första tecknet i brödtexten** (#11). `\s*` efter den
+  avslutande `---`-raden matchar nyrader lika gärna som mellanslag, så en not som
+  började med ett blanksteg eller en tomrad tappade det vid varje sparning. Tre
+  noter i produktion var redan drabbade. Äldre fel än de två ovan.
+
 ## 1.32 (2026-09-17)
 
 - **Swagger UI and `/openapi.json` are off by default.** They were reachable without a token and listed every route; set `HEXNOTES_DOCS=1` to enable them in a local dev container.

@@ -26,7 +26,7 @@ mimetypes.add_type("font/woff2", ".woff2")
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-APP_VERSION = "1.32"  # bump minor for features, major for breaking changes — see CHANGELOG.md
+APP_VERSION = "1.33"  # bump minor for features, major for breaking changes — see CHANGELOG.md
 
 NOTES_PATH = Path("/app/notes")
 TRASH_PATH = NOTES_PATH / ".trash"
@@ -147,7 +147,11 @@ class TokenOut(BaseModel):
 # ---------------------------------------------------------------------------
 # In-memory index
 # ---------------------------------------------------------------------------
-FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
+# \s* after the closing --- would eat into the body: \s matches newlines and
+# spaces alike, so a note whose first line began with a space or a blank line
+# lost that character on every save. Only trailing blanks on the fence line
+# itself belong to the fence.
+FRONTMATTER_RE = re.compile(r"^---[ \t]*\n(.*?)\n---[ \t]*(?:\n|$)", re.DOTALL)
 TAG_RE = re.compile(r"(?:^|(?<=\s))#([a-zA-Z0-9_\-åäöÅÄÖ]+)", re.MULTILINE)
 
 notes_index: dict[str, dict] = {}
@@ -195,16 +199,69 @@ def sanitize_filename(filename: str) -> str:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+DATE_ONLY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def normalize_expiry(value) -> Optional[str]:
+    """Any stored expires_at → one canonical ISO 8601 string, or None.
+
+    YAML used to turn an unquoted timestamp back into a datetime, whose str()
+    is space-separated ("2026-09-17 22:59:21+00:00") rather than ISO. That
+    string then lost every comparison against datetime.isoformat() — see the
+    early-sweep bug. Everything now passes through here, so what the API hands
+    out and what the sweep compares are the same shape.
+    """
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat(timespec="seconds")
+    return str(value).replace(" ", "T", 1)
+
+
+def parse_expiry(value) -> Optional[datetime]:
+    """Stored expires_at → an aware datetime, or None when it is unreadable.
+
+    None means "cannot tell", and the sweep lets such a note live rather than
+    trashing it on a value it failed to parse.
+    """
+    iso = normalize_expiry(value)
+    if not iso:
+        return None
+    try:
+        dt = datetime.fromisoformat(iso)
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+
+
 def _build_frontmatter(tags: list[str], created: Optional[str], pinned: bool = False, expires_at: Optional[str] = None) -> str:
-    lines = ["---"]
-    lines.append(f"tags: [{', '.join(tags)}]")
-    lines.append(f"created: {created if created else 'null'}")
+    """Frontmatter via safe_dump, never string formatting.
+
+    An f-string here let any newline inside created/expires_at open a
+    frontmatter line of its own, so a note could grow fields (pinned, a fresh
+    expires_at) that no API call ever set. A plain date stays unquoted and a
+    tag list stays inline, so ordinary notes are written byte for byte as
+    before; only values that need quoting get it.
+    """
+    fields: dict = {"tags": tags}
+    # date over str so YAML writes 2026-04-10, not '2026-04-10'
+    fields["created"] = (
+        date.fromisoformat(created)
+        if created and DATE_ONLY_RE.match(str(created))
+        else created or None
+    )
     if pinned:
-        lines.append("pinned: true")
+        fields["pinned"] = True
     if expires_at:
-        lines.append(f"expires_at: {expires_at}")
-    lines.append("---")
-    return chr(10).join(lines) + chr(10)
+        fields["expires_at"] = normalize_expiry(expires_at)
+    body = yaml.safe_dump(
+        fields,
+        sort_keys=False,
+        allow_unicode=True,
+        default_flow_style=None,  # inline tag list, block for the rest
+        width=10**6,              # never wrap a long tag line
+    )
+    return "---" + chr(10) + body + "---" + chr(10)
 
 
 def _write_note_with_frontmatter(path: Path, content: str, created: Optional[str], pinned: bool = False, expires_at: Optional[str] = None):
@@ -245,13 +302,20 @@ def parse_note(path: Path) -> dict:
     if date_str:
         created_at = date_str + "T00:00:00"
     elif meta.get("created"):
-        created_at = str(meta["created"]) + "T00:00:00" if isinstance(meta["created"], date) else str(meta["created"])
+        raw_created = meta["created"]
+        if isinstance(raw_created, date):
+            created_at = str(raw_created) + "T00:00:00"
+        elif DATE_ONLY_RE.match(str(raw_created)):
+            # A quoted date in the file is the same instant as a bare one
+            created_at = str(raw_created) + "T00:00:00"
+        else:
+            created_at = str(raw_created)
     else:
         created_at = updated_at
 
     tags = extract_tags(content)
     pinned = bool(meta.get("pinned", False))
-    expires_at = str(meta["expires_at"]) if meta.get("expires_at") else None
+    expires_at = normalize_expiry(meta.get("expires_at"))
 
     preview = _first_line(content)
 
@@ -477,20 +541,26 @@ Make it yours: fill it with [[wiki-links]] to your important notes.
 
 
 def _sweep_expired() -> int:
-    """Flytta noter med utgången expires_at till papperskorgen. Returnerar antal."""
-    now_iso = datetime.now(UTC).isoformat(timespec="seconds")
+    """Flytta noter med utgången expires_at till papperskorgen. Returnerar antal.
+
+    Jämför som datetime. Den gamla strängjämförelsen gick på ISO-texten, där
+    ett mellanslag sorterar före "T" — så fort datumdelen var lika ansågs
+    noten utgången, och en efemär not dog vid midnatt UTC i stället för vid
+    sin TTL.
+    """
+    now = datetime.now(UTC)
     count = 0
     for note_id, note in list(notes_index.items()):
-        exp = note.get("expires_at")
-        if not exp:
+        exp = parse_expiry(note.get("expires_at"))
+        if exp is None:
             continue
-        try:
-            if str(exp) <= now_iso:
+        if exp <= now:
+            try:
                 _move_to_trash(note_id)
                 invalidate_delete(note_id)
                 count += 1
-        except Exception:
-            pass
+            except OSError:
+                pass
     return count
 
 
@@ -696,7 +766,7 @@ async def update_note(note_id: str, body: NoteUpdate, _=Depends(require_token)):
         date_str = created_at_from_filename(f"{note_id}.md")
         created = date_str if date_str else None
     pinned = bool(meta.get("pinned", False))
-    expires_at = str(meta["expires_at"]) if meta.get("expires_at") else None
+    expires_at = normalize_expiry(meta.get("expires_at"))
 
     _write_note_with_frontmatter(path, body.content, created, pinned, expires_at)
     invalidate(note_id)
@@ -741,7 +811,7 @@ async def pin_note(note_id: str, _=Depends(require_token)):
         created = date_str if date_str else None
 
     new_pinned = not bool(meta.get("pinned", False))
-    expires_at = str(meta["expires_at"]) if meta.get("expires_at") else None
+    expires_at = normalize_expiry(meta.get("expires_at"))
     _write_note_with_frontmatter(path, content, created, new_pinned, expires_at)
     invalidate(note_id)
     return notes_index[note_id]

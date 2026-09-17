@@ -9,6 +9,10 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.32 (2026-09-17)
+
+- **Swagger UI and `/openapi.json` are off by default.** They were reachable without a token and listed every route; set `HEXNOTES_DOCS=1` to enable them in a local dev container.
+
 ## 1.31 (2026-09-09)
 
 - **Rebranded from violet to green**, matching the new app-icon family

@@ -567,7 +567,7 @@ Also keep in mind that filesystem backups of `notes/` contain copies of everythi
 **Known exposure, accepted for a single-user private deployment:**
 - The API token is stored in `localStorage`, so any XSS that gets past DOMPurify and the CSP can read it
 - `ADMIN_SECRET` is a human-chosen password with no rate limiting or lockout — it must be long and random, and the app should not be exposed to the open internet without TLS (and ideally an IP allowlist in Nginx Proxy Manager)
-- `/docs` (Swagger UI) is reachable without a token. It only reveals the API shape — every endpoint behind it still requires auth — but you can set `docs_url=None` in `backend/main.py` to remove it
+- `/docs` (Swagger UI) and `/openapi.json` are disabled by default since 1.32 — they revealed the API shape without a token. Set `HEXNOTES_DOCS=1` in the container environment to enable them for local development
 - The container runs as root. Running as a non-root user is safer, but changing it now requires `chown`-ing the existing `notes/` volume to match
 
 ---

@@ -26,13 +26,23 @@ mimetypes.add_type("font/woff2", ".woff2")
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-APP_VERSION = "1.31"  # bump minor for features, major for breaking changes — see CHANGELOG.md
+APP_VERSION = "1.32"  # bump minor for features, major for breaking changes — see CHANGELOG.md
 
 NOTES_PATH = Path("/app/notes")
 TRASH_PATH = NOTES_PATH / ".trash"
 TOKENS_FILE = Path("/app/tokens.json")
 
-app = FastAPI(title="HexNotes", version=APP_VERSION, docs_url="/docs", redoc_url=None)
+# Swagger UI (/docs) and /openapi.json are off unless HEXNOTES_DOCS=1. They need
+# no token and expose the full route map; every endpoint behind them still
+# requires auth, but there is no reason to hand out the map on a public host.
+_DOCS_ON = os.environ.get("HEXNOTES_DOCS") == "1"
+app = FastAPI(
+    title="HexNotes",
+    version=APP_VERSION,
+    docs_url="/docs" if _DOCS_ON else None,
+    redoc_url=None,
+    openapi_url="/openapi.json" if _DOCS_ON else None,
+)
 
 
 # Defence in depth for the one place untrusted-ish content is rendered: note

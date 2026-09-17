@@ -6,13 +6,14 @@ import os
 import re
 import secrets
 import shutil
+from contextlib import asynccontextmanager, suppress
 from datetime import datetime, date, timedelta, UTC
 from pathlib import Path
 from typing import Optional
 
 import yaml
-from fastapi import FastAPI, HTTPException, Depends, Request
-from fastapi.responses import PlainTextResponse, JSONResponse
+from fastapi import FastAPI, HTTPException, Depends, Request, Query
+from fastapi.responses import PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -26,7 +27,12 @@ mimetypes.add_type("font/woff2", ".woff2")
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-APP_VERSION = "1.33"  # bump minor for features, major for breaking changes — see CHANGELOG.md
+APP_VERSION = "1.34"  # bump minor for features, major for breaking changes — see CHANGELOG.md
+
+# Upper bound on GET /api/notes?limit=. The frontend asks for 200, so the
+# cap sits above that rather than on it, leaving room to raise the client
+# side without touching the server.
+MAX_PAGE_SIZE = 500
 
 NOTES_PATH = Path("/app/notes")
 TRASH_PATH = NOTES_PATH / ".trash"
@@ -36,12 +42,35 @@ TOKENS_FILE = Path("/app/tokens.json")
 # no token and expose the full route map; every endpoint behind them still
 # requires auth, but there is no reason to hand out the map on a public host.
 _DOCS_ON = os.environ.get("HEXNOTES_DOCS") == "1"
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Replaces the deprecated @app.on_event("startup").
+
+    startup() and _expiry_loop() are defined further down the module; Python
+    resolves them when this runs, not when it is defined. The sweep task is
+    kept on app.state because asyncio only holds a weak reference to running
+    tasks — a bare create_task() can be collected mid-loop — and so shutdown
+    has something to cancel.
+    """
+    await startup()
+    app.state.expiry_task = asyncio.create_task(_expiry_loop())
+    try:
+        yield
+    finally:
+        app.state.expiry_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await app.state.expiry_task
+
+
 app = FastAPI(
     title="HexNotes",
     version=APP_VERSION,
     docs_url="/docs" if _DOCS_ON else None,
     redoc_url=None,
     openapi_url="/openapi.json" if _DOCS_ON else None,
+    lifespan=lifespan,
 )
 
 
@@ -218,6 +247,15 @@ def normalize_expiry(value) -> Optional[str]:
     return str(value).replace(" ", "T", 1)
 
 
+def _midnight_utc(date_str: str) -> str:
+    """"2026-04-10" → "2026-04-10T00:00:00+00:00".
+
+    A date carries no zone of its own; pinning it to UTC keeps created_at in
+    the same base as updated_at instead of leaving the client to guess.
+    """
+    return date_str + "T00:00:00+00:00"
+
+
 def parse_expiry(value) -> Optional[datetime]:
     """Stored expires_at → an aware datetime, or None when it is unreadable.
 
@@ -296,18 +334,20 @@ def parse_note(path: Path) -> dict:
 
     stem = path.stem
     stat = path.stat()
-    updated_at = datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds")
+    # UTC, not naive local time. expires_at and the trash timestamps have
+    # always been UTC, so a naive updated_at put two time bases in one
+    # response — and a client in another zone than the container read it as
+    # its own local time, silently hours off.
+    updated_at = datetime.fromtimestamp(stat.st_mtime, UTC).isoformat(timespec="seconds")
 
     date_str = created_at_from_filename(path.name)
     if date_str:
-        created_at = date_str + "T00:00:00"
+        created_at = _midnight_utc(date_str)
     elif meta.get("created"):
         raw_created = meta["created"]
-        if isinstance(raw_created, date):
-            created_at = str(raw_created) + "T00:00:00"
-        elif DATE_ONLY_RE.match(str(raw_created)):
+        if isinstance(raw_created, date) or DATE_ONLY_RE.match(str(raw_created)):
             # A quoted date in the file is the same instant as a bare one
-            created_at = str(raw_created) + "T00:00:00"
+            created_at = _midnight_utc(str(raw_created))
         else:
             created_at = str(raw_created)
     else:
@@ -573,8 +613,8 @@ async def _expiry_loop():
             pass
 
 
-@app.on_event("startup")
 async def startup():
+    """Kept as a plain function so tests can call it directly."""
     if not TOKENS_FILE.exists():
         try:
             TOKENS_FILE.write_text('{"tokens": []}', encoding="utf-8")
@@ -592,7 +632,6 @@ async def startup():
     expired = _sweep_expired()
     if expired:
         print(f"[startup] {expired} ephemeral note(s) expired → trash", flush=True)
-    asyncio.create_task(_expiry_loop())
 
 
 # ---------------------------------------------------------------------------
@@ -644,10 +683,13 @@ async def list_tokens(_=Depends(require_admin)):
 
 @app.get("/api/notes", response_model=list[NoteOut])
 async def list_notes(
-    q: Optional[str] = None,
-    tag: Optional[str] = None,
-    limit: int = 50,
-    offset: int = 0,
+    q: Optional[str] = Query(None, max_length=200),
+    tag: Optional[str] = Query(None, max_length=100),
+    # Bounded: every entry carries the note's full content, so an unbounded
+    # limit hands out the whole collection in one call. Negative values used
+    # to slice backwards and return a quietly wrong page instead of a 422.
+    limit: int = Query(50, ge=1, le=MAX_PAGE_SIZE),
+    offset: int = Query(0, ge=0),
     _=Depends(require_token),
 ):
     results = list(notes_index.values())
@@ -755,7 +797,8 @@ async def update_note(note_id: str, body: NoteUpdate, _=Depends(require_token)):
     if not body.content or not body.content.strip():
         _move_to_trash(note_id)
         invalidate_delete(note_id)
-        return JSONResponse(status_code=204, content=None)
+        # 204 means no body at all; JSONResponse sent a literal "null"
+        return Response(status_code=204)
 
     if old_body != body.content:
         _snapshot_note(note_id)

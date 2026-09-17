@@ -258,3 +258,38 @@ def test_rename_sanitizes_path_traversal(client, auth, tmp_notes):
     assert r.json()["filename"] == "evil.md"
     assert (tmp_notes / "evil.md").exists()
     assert not (tmp_notes.parent / "evil.md").exists()
+
+
+# === Pagination bounds ===
+
+def test_limit_above_the_cap_is_rejected(client, auth):
+    """Varje post bär notens fulla content — ett obundet limit lämnar ut hela
+    samlingen i ett anrop."""
+    from backend.main import MAX_PAGE_SIZE
+    assert client.get(f"/api/notes?limit={MAX_PAGE_SIZE + 1}", headers=auth).status_code == 422
+    assert client.get(f"/api/notes?limit={MAX_PAGE_SIZE}", headers=auth).status_code == 200
+
+
+def test_negative_limit_and_offset_are_rejected(client, auth):
+    """limit=-1 gav förut results[0:-1] — ett tyst fel svar i stället för 422."""
+    assert client.get("/api/notes?limit=-1", headers=auth).status_code == 422
+    assert client.get("/api/notes?offset=-5", headers=auth).status_code == 422
+    assert client.get("/api/notes?limit=0", headers=auth).status_code == 422
+
+
+def test_limit_still_pages(client, auth):
+    for i in range(4):
+        client.post("/api/notes", json={"content": f"not {i}", "filename": f"sida-{i}.md"}, headers=auth)
+    first = client.get("/api/notes?limit=2", headers=auth).json()
+    second = client.get("/api/notes?limit=2&offset=2", headers=auth).json()
+    assert len(first) == 2 and len(second) == 2
+    assert {n["id"] for n in first}.isdisjoint({n["id"] for n in second})
+
+
+def test_emptying_a_note_returns_204_without_a_body(client, auth):
+    """204 betyder ingen kropp alls; JSONResponse skickade en literal "null"."""
+    r = client.post("/api/notes", json={"content": "raderas"}, headers=auth)
+    note_id = r.json()["id"]
+    r2 = client.patch(f"/api/notes/{note_id}", json={"content": "   "}, headers=auth)
+    assert r2.status_code == 204
+    assert r2.content == b""

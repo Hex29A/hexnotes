@@ -198,3 +198,41 @@ def test_frontmatter_without_trailing_newline_still_parses():
     meta, body = parse_frontmatter("---" + nl + "tags: []" + nl + "---")
     assert meta == {"tags": []}
     assert body == ""
+
+
+# === Time fields are UTC, not naive local time ===
+
+def test_updated_at_is_utc_aware(tmp_notes):
+    from datetime import datetime
+    from backend.main import parse_note
+    p = tmp_notes / "tid.md"
+    p.write_text("hej", encoding="utf-8")
+    note = parse_note(p)
+    assert note["updated_at"].endswith("+00:00")
+    assert datetime.fromisoformat(note["updated_at"]).tzinfo is not None
+
+
+def test_created_at_from_filename_is_utc_aware(tmp_notes):
+    from backend.main import parse_note
+    p = tmp_notes / "2026-04-10-not.md"
+    p.write_text("hej", encoding="utf-8")
+    assert parse_note(p)["created_at"] == "2026-04-10T00:00:00+00:00"
+
+
+def test_created_at_from_frontmatter_is_utc_aware(tmp_notes):
+    from backend.main import _write_note_with_frontmatter, parse_note
+    p = tmp_notes / "tidlos.md"
+    _write_note_with_frontmatter(p, "hej", "2026-04-10")
+    assert parse_note(p)["created_at"] == "2026-04-10T00:00:00+00:00"
+
+
+def test_every_time_field_shares_one_base(tmp_notes):
+    """updated_at, created_at och expires_at ska gå att jämföra rakt av."""
+    from datetime import datetime
+    from backend.main import _write_note_with_frontmatter, parse_note
+    p = tmp_notes / "bas.md"
+    _write_note_with_frontmatter(p, "hej", "2026-04-10", False, "2026-09-17T23:08:42+00:00")
+    note = parse_note(p)
+    stamps = [datetime.fromisoformat(note[k]) for k in ("created_at", "updated_at", "expires_at")]
+    assert all(s.tzinfo is not None for s in stamps)
+    assert stamps[0] < stamps[1]  # skapad före senast ändrad

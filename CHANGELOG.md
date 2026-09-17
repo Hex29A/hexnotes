@@ -9,6 +9,27 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.34 (2026-09-17)
+
+Fortsättning på genomgången (issues #7, #8, #9).
+
+- **`updated_at` och `created_at` är UTC i stället för naiv lokaltid** (#7).
+  `expires_at` och papperskorgens tider har alltid varit UTC, så ett svar bar två
+  tidsbaser utan att märka ut vilken som var vilken; en klient i en annan zon än
+  containern läste `updated_at` som sin egen lokala tid. Alla tre fälten går nu
+  att jämföra rakt av. Historikens och papperskorgens tidsstämplar är oförändrade
+  (naiv UTC, som frontenden redan läser med ett påhängt `Z`).
+- **`GET /api/notes` har gränser på `limit` och `offset`** (#8). Varje post bär
+  notens fulla `content`, och `limit` saknade tak. Negativa värden skar listan
+  bakifrån och gav ett tyst fel svar i stället för 422. Taket (`MAX_PAGE_SIZE`)
+  är 500; frontenden ber om 200. `q` och `tag` har längdgränser.
+- **`lifespan` i stället för det utfasade `on_event("startup")`** (#9).
+  Svep-tasken ligger på `app.state` — `asyncio` håller bara en svag referens till
+  körande tasks, så en naken `create_task()` kan skräpsamlas mitt i loopen — och
+  avbryts vid nedstängning.
+- **Tomt innehåll svarar 204 utan kropp** (#9). `JSONResponse(204, None)` skickade
+  en literal `null`, vilket 204 inte tillåter.
+
 ## 1.33 (2026-09-17)
 
 Buggfixar från en genomgång av backend (issues #4, #5, #11).

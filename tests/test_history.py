@@ -118,3 +118,50 @@ def test_restore_via_patch_adds_new_version(client, auth):
     assert r.json()["content"] == "Version ett"
     versions = client.get(f"/api/notes/{created['id']}/history", headers=auth).json()
     assert [v["preview"] for v in versions] == ["Version två", "Version ett"]
+
+
+# === Pruning: history used to grow without bound ===
+
+def test_history_is_capped(client, auth, tmp_notes):
+    from backend.main import HISTORY_MAX_VERSIONS, _history_dir
+    r = client.post("/api/notes", json={"content": "v0", "filename": "gallring.md"}, headers=auth)
+    note_id = r.json()["id"]
+    for i in range(HISTORY_MAX_VERSIONS + 12):
+        client.patch(f"/api/notes/{note_id}", json={"content": f"v{i + 1}"}, headers=auth)
+    kept = sorted(_history_dir(note_id).glob("*.md"))
+    assert len(kept) == HISTORY_MAX_VERSIONS
+
+
+def test_pruning_keeps_the_newest(client, auth, tmp_notes):
+    from backend.main import HISTORY_MAX_VERSIONS, _history_dir
+    r = client.post("/api/notes", json={"content": "v0", "filename": "nyast.md"}, headers=auth)
+    note_id = r.json()["id"]
+    for i in range(HISTORY_MAX_VERSIONS + 5):
+        client.patch(f"/api/notes/{note_id}", json={"content": f"v{i + 1}"}, headers=auth)
+    versions = sorted(_history_dir(note_id).glob("*.md"))
+    newest = versions[-1].read_text(encoding="utf-8")
+    assert "v" + str(HISTORY_MAX_VERSIONS + 4) in newest
+    listed = client.get(f"/api/notes/{note_id}/history", headers=auth).json()
+    assert len(listed) == HISTORY_MAX_VERSIONS
+
+
+def test_pruning_leaves_foreign_files_alone(client, auth, tmp_notes):
+    """Bara filer som matchar versionsmönstret får röras."""
+    from backend.main import HISTORY_MAX_VERSIONS, _history_dir
+    r = client.post("/api/notes", json={"content": "v0", "filename": "frammande.md"}, headers=auth)
+    note_id = r.json()["id"]
+    client.patch(f"/api/notes/{note_id}", json={"content": "v1"}, headers=auth)
+    stray = _history_dir(note_id) / "anteckning.md"
+    stray.write_text("inte en version", encoding="utf-8")
+    for i in range(HISTORY_MAX_VERSIONS + 3):
+        client.patch(f"/api/notes/{note_id}", json={"content": f"w{i}"}, headers=auth)
+    assert stray.exists()
+
+
+def test_history_under_the_cap_is_untouched(client, auth, tmp_notes):
+    from backend.main import _history_dir
+    r = client.post("/api/notes", json={"content": "a", "filename": "fa.md"}, headers=auth)
+    note_id = r.json()["id"]
+    for c in ("b", "c", "d"):
+        client.patch(f"/api/notes/{note_id}", json={"content": c}, headers=auth)
+    assert len(list(_history_dir(note_id).glob("*.md"))) == 3

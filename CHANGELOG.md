@@ -9,6 +9,16 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.35 (2026-09-17)
+
+- **Versionshistoriken har ett tak per not** (#6). `_snapshot_note` skrev en ny
+  fil vid varje ändring och ingenting städade någonsin: 1140 versioner på 4,8 MB
+  för 161 noter, där en enda not stod för 215. `HISTORY_MAX_VERSIONS` är 50 och
+  gallringen sker vid nästa sparning, så gammal historik försvinner gradvis i
+  stället för i ett svep. Kört mot en kopia av produktionens historik: sex noter
+  berörs, 344 av 1140 versioner gallras, nyaste versionen alltid bevarad, och
+  filer som inte matchar versionsmönstret lämnas ifred.
+
 ## 1.34 (2026-09-17)
 
 Fortsättning på genomgången (issues #7, #8, #9).

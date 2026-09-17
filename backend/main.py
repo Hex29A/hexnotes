@@ -27,7 +27,7 @@ mimetypes.add_type("font/woff2", ".woff2")
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-APP_VERSION = "1.34"  # bump minor for features, major for breaking changes — see CHANGELOG.md
+APP_VERSION = "1.35"  # bump minor for features, major for breaking changes — see CHANGELOG.md
 
 # Upper bound on GET /api/notes?limit=. The frontend asks for 200, so the
 # cap sits above that rather than on it, leaving room to raise the client
@@ -406,11 +406,41 @@ def invalidate_delete(note_id: str):
 # Version history
 # ---------------------------------------------------------------------------
 HISTORY_DIRNAME = ".history"
+# Autospar gjorde en ny snapshot vid varje ändring och ingenting städade: 1140
+# versioner på 4,8 MB för 161 noter, där en enda not stod för 215. Taket gäller
+# per not och slår till vid nästa sparning, så gammal historik gallras gradvis
+# i stället för i ett svep.
+HISTORY_MAX_VERSIONS = 50
 VERSION_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{6}$")
 
 
 def _history_dir(note_id: str) -> Path:
     return NOTES_PATH / HISTORY_DIRNAME / note_id
+
+
+def _prune_history(note_id: str) -> int:
+    """Behåll de HISTORY_MAX_VERSIONS senaste versionerna. Returnerar antal
+    raderade.
+
+    Versionsnamnen är tidsstämplar med fast bredd, så lexikografisk ordning
+    är kronologisk ordning. Bara filer som matchar VERSION_RE rörs — allt
+    annat som råkar ligga i katalogen lämnas ifred.
+    """
+    hist = _history_dir(note_id)
+    if not hist.is_dir():
+        return 0
+    versions = sorted(f for f in hist.glob("*.md") if VERSION_RE.match(f.stem))
+    excess = len(versions) - HISTORY_MAX_VERSIONS
+    if excess <= 0:
+        return 0
+    removed = 0
+    for f in versions[:excess]:
+        try:
+            f.unlink()
+            removed += 1
+        except OSError:
+            pass
+    return removed
 
 
 def _snapshot_note(note_id: str):
@@ -422,6 +452,7 @@ def _snapshot_note(note_id: str):
     hist.mkdir(parents=True, exist_ok=True)
     ts = datetime.now(UTC).strftime("%Y-%m-%dT%H-%M-%S-%f")
     (hist / f"{ts}.md").write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+    _prune_history(note_id)
 
 
 def _version_timestamp(version: str) -> str:

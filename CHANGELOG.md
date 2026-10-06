@@ -9,6 +9,22 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.38 (2026-10-06)
+
+- **Notlistan visar fel i stället för att bli tom** (#13). `loadNotes` och
+  `pollNotes` svalde alla fel, så när proxyn var nere 2026-10-06 såg
+  sidofältet ut som om alla noter var borta. Nu visas en felruta överst i
+  listan med orsaken (servern nås inte / 401 / annan statuskod) och en
+  Try again-knapp; senast hämtade lista ligger kvar. Nätverksfel slår även på
+  offline-raden, och när servern svarar igen laddas listan om av sig själv.
+  På mobil växlar appen till listvyn så att felet syns när ingen not är öppen.
+- **Noterna i varje grupp sorteras efter när de skapades, nyaste först** (#14).
+  Gäller Ephemeral, Pinned, Inbox och varje tagg. En gammal not som redigeras
+  hoppar inte längre upp överst. Samma dag skapade noter (midnatt-`created_at`)
+  ordnas efter senaste ändring. Sökresultat är oförändrade.
+- Nya tester i `tests/test_list_ui.py`; beteendet verifierat i headless Chromium
+  (502, 401, nätverket nere från start, återhämtning, mobilvy, sortering).
+
 ## 1.37 (2026-09-17)
 
 - **Notlistan hämtas sida för sida i stället för med ett hårdkodat tak** (#12).

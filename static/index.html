@@ -225,6 +225,28 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
   gap: 2px;
 }
 
+/* Shown instead of an empty list when the note list could not be fetched (#13) */
+#list-error {
+  display: none;
+  margin: 8px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--error-bg);
+  color: var(--error-text);
+  font-size: 12px;
+  line-height: 1.4;
+}
+#list-error button {
+  margin-top: 6px;
+  background: none;
+  border: 1px solid var(--error-text);
+  color: var(--error-text);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
 /* Note card */
 .note-card {
   padding: 10px 12px;
@@ -1176,6 +1198,7 @@ mark {
       <div id="sidebar-scroll">
         <div id="tag-filters"></div>
         <div id="collapse-all-bar"><button id="btn-collapse-all">▾ collapse all</button></div>
+        <div id="list-error" role="alert"><div id="list-error-text"></div><button id="btn-list-retry">Try again</button></div>
         <div id="notes-list"></div>
       </div>
       <div id="trash-bar">
@@ -1339,6 +1362,8 @@ const $btnNew = document.getElementById('btn-new');
 const $btnSync = document.getElementById('btn-sync');
 const $sidebar = document.getElementById('sidebar');
 const $notesList = document.getElementById('notes-list');
+const $listError = document.getElementById('list-error');
+const $listErrorText = document.getElementById('list-error-text');
 const $editorArea = document.getElementById('editor-area');
 const $filenameRow = document.getElementById('filename-row');
 const $filenameDisplay = document.getElementById('filename-display');
@@ -1436,7 +1461,11 @@ async function fetchAllNotes(q) {
     let url = `/api/notes?limit=${NOTES_PAGE_SIZE}&offset=${page * NOTES_PAGE_SIZE}`;
     if (q) url += `&q=${encodeURIComponent(q)}`;
     const res = await apiFetch(url);
-    if (!res.ok) throw new Error('could not fetch notes');
+    if (!res.ok) {
+      const err = new Error('could not fetch notes');
+      err.status = res.status;
+      throw err;
+    }
     const batch = await res.json();
     all.push(...batch);
     if (batch.length < NOTES_PAGE_SIZE) break;
@@ -1471,10 +1500,38 @@ async function loadNotes() {
     } else {
       renderNotesList();
     }
-  } catch {
-    // Probably offline or auth error
+    clearListError();
+  } catch (err) {
+    showListError(err);
   }
 }
+
+// A failed fetch used to be swallowed, leaving an empty sidebar that looked
+// exactly like "all notes are gone" (#13). Say what went wrong instead, and
+// keep whatever list was already on screen.
+function showListError(err) {
+  let msg;
+  if (err && err.status === 401) {
+    msg = 'The server rejected the token (401) — notes could not be loaded.';
+  } else if (err && err.status) {
+    msg = `The server answered ${err.status} — notes could not be loaded.`;
+  } else {
+    msg = 'Cannot reach the server — notes could not be loaded.';
+    goOffline();
+  }
+  if (notes.length > 0) msg += ' Showing the last loaded list.';
+  $listErrorText.textContent = msg;
+  $listError.style.display = 'block';
+  // On mobile the error lives in the hidden list view; with no note open the
+  // editor is blank anyway, so switch to the list where the message shows.
+  if (isMobile && !mobileShowList && !activeNoteId) showMobileList();
+}
+
+function clearListError() {
+  $listError.style.display = 'none';
+}
+
+document.getElementById('btn-list-retry').addEventListener('click', () => loadNotes());
 
 // === SECTION: AUTO-REFRESH ===
 // Fillistan hålls färsk utan manuell reload: poll var 30:e sekund (bara när
@@ -1495,8 +1552,10 @@ async function pollNotes() {
       notes = fresh;
       renderNotesList();
     }
-  } catch {
-    // Offline — nästa poll försöker igen
+    clearListError();
+  } catch (err) {
+    // Nästa poll försöker igen, men tomheten ska inte se ut som ett svar
+    showListError(err);
   }
 }
 
@@ -1604,6 +1663,16 @@ function makeNoteCard(n) {
   return card;
 }
 
+// Within a group the newest-created note comes first (#14), so an old note
+// that gets edited stays where it was instead of jumping to the top. Notes
+// created the same day share a midnight created_at; the latest edit breaks
+// the tie.
+function sortNewestCreated(list) {
+  const t = v => Date.parse(v) || 0;
+  return [...list].sort((a, b) =>
+    (t(b.created_at) - t(a.created_at)) || (t(b.updated_at) - t(a.updated_at)));
+}
+
 function renderNoteGroup(key, label, groupNotes, parent = $notesList, defaultCollapsed = false) {
   if (groupNotes.length === 0) return;
 
@@ -1638,7 +1707,7 @@ function renderNoteGroup(key, label, groupNotes, parent = $notesList, defaultCol
     body.classList.toggle('collapsed');
   });
 
-  for (const n of groupNotes) {
+  for (const n of sortNewestCreated(groupNotes)) {
     body.appendChild(makeNoteCard(n));
   }
 
@@ -3123,6 +3192,7 @@ function goOnline() {
   if (pendingContent !== null) {
     save(pendingContent);
   }
+  loadNotes();
 }
 
 async function checkHealth() {

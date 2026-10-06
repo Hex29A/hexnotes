@@ -423,6 +423,18 @@ The frontend keeps notes up to date via multiple mechanisms:
 | Manual ↻ button (mobile) | Force reload |
 | Reconnect after offline | Save pending content, reload list |
 
+**When a fetch fails the sidebar says so.** A red box at the top of the list
+names the cause (server unreachable, `401`, or another status) and offers
+**Try again**; the last loaded list stays on screen, and a network failure also
+raises the offline bar. On mobile the app switches to the list view so the
+message is seen even with no note open. The box clears itself on the next
+successful load.
+
+**Order in the sidebar:** inside every group (Ephemeral, Pinned, Inbox, each
+tag) notes are sorted by **created** date, newest first, with last edit as the
+tie-breaker for notes created the same day. This is a frontend ordering only —
+`GET /api/notes` still returns notes sorted by `updated_at`.
+
 **The open note updates too**, not just the sidebar — so a note edited by an AI
 agent or another device refreshes under you within ~30s. This reuses the list
 response, which already contains full content, so it costs no extra requests.
@@ -546,6 +558,7 @@ docker compose run --rm hexnotes pytest tests/ -v --tb=short
 | `tests/test_ephemeral_ui.py` | Ephemeral rendering in the sidebar |
 | `tests/test_rename_ttl.py` | TTL survives rename |
 | `tests/test_fab.py` | Mobile FAB long-press ephemeral flow |
+| `tests/test_list_ui.py` | Sidebar list errors and created-date ordering |
 
 Frontend features (sidebar, palette, find bar, preview, dialogs) are pure client-side and do not have automated tests.
 

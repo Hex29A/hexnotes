@@ -545,7 +545,7 @@ Every opened note gets a hash URL (`#note-id`) pushed to browser history:
 docker compose run --rm hexnotes pytest tests/ -v --tb=short
 ```
 
-120 tests:
+148 tests:
 
 | File | Covers |
 |------|--------|

@@ -425,6 +425,13 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
   padding: 0 0 4px;
 }
 .group-body.collapsed { display: none; }
+.date-bucket {
+  padding: 8px 12px 2px;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
 
 /* Editor area */
 #editor-area {
@@ -1449,7 +1456,7 @@ const NOTES_MAX_PAGES = 50;
 
 // Fetches the whole note list, one page at a time.
 //
-// The sidebar groups and sorts locally (Ephemeral, Pinned, Inbox, tags), and
+// The sidebar groups and sorts locally (Ephemeral, Pinned, All notes, tags), and
 // backlinks and wiki-link autocomplete read the content of every note, so the
 // client needs all of them before it can draw. A single hardcoded limit=200
 // meant that once the collection passed 200, the oldest notes simply stopped
@@ -1663,17 +1670,52 @@ function makeNoteCard(n) {
   return card;
 }
 
-// Within a group the newest-created note comes first (#14), so an old note
-// that gets edited stays where it was instead of jumping to the top. Notes
-// created the same day share a midnight created_at; the latest edit breaks
-// the tie.
+// In Ephemeral, Pinned and the tag groups the newest-created note comes first
+// (#14), so an old note that gets edited stays where it was instead of jumping
+// to the top. Notes created the same day share a midnight created_at; the
+// latest edit breaks the tie.
 function sortNewestCreated(list) {
   const t = v => Date.parse(v) || 0;
   return [...list].sort((a, b) =>
     (t(b.created_at) - t(a.created_at)) || (t(b.updated_at) - t(a.updated_at)));
 }
 
-function renderNoteGroup(key, label, groupNotes, parent = $notesList, defaultCollapsed = false) {
+// All notes is the one list where everything shows up, tagged or not, so it is
+// ordered by last edit — what you just wrote or touched is on top — and split
+// under a few date headings. Kept deliberately short: four buckets, empty ones
+// are skipped. Dates are the viewer's local calendar days.
+function sortRecentlyUpdated(list) {
+  const t = v => Date.parse(v) || 0;
+  return [...list].sort((a, b) => t(b.updated_at) - t(a.updated_at));
+}
+
+function dateBucket(iso, now = new Date()) {
+  const startOfDay = d => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const today = startOfDay(now);
+  const day = 86400000;
+  const t = Date.parse(iso) || 0;
+  if (t >= today) return 'Today';
+  if (t >= today - day) return 'Yesterday';
+  if (t >= today - 6 * day) return 'Last 7 days';
+  return 'Older';
+}
+
+function appendDateBuckets(body, list) {
+  let current = null;
+  for (const n of sortRecentlyUpdated(list)) {
+    const bucket = dateBucket(n.updated_at);
+    if (bucket !== current) {
+      const h = document.createElement('div');
+      h.className = 'date-bucket';
+      h.textContent = bucket;
+      body.appendChild(h);
+      current = bucket;
+    }
+    body.appendChild(makeNoteCard(n));
+  }
+}
+
+function renderNoteGroup(key, label, groupNotes, parent = $notesList, defaultCollapsed = false, fill = null) {
   if (groupNotes.length === 0) return;
 
   if (!(key in collapsedGroups)) collapsedGroups[key] = defaultCollapsed;
@@ -1707,8 +1749,12 @@ function renderNoteGroup(key, label, groupNotes, parent = $notesList, defaultCol
     body.classList.toggle('collapsed');
   });
 
-  for (const n of sortNewestCreated(groupNotes)) {
-    body.appendChild(makeNoteCard(n));
+  if (fill) {
+    fill(body, groupNotes);
+  } else {
+    for (const n of sortNewestCreated(groupNotes)) {
+      body.appendChild(makeNoteCard(n));
+    }
   }
 
   parent.appendChild(header);
@@ -1773,9 +1819,9 @@ function renderNotesList() {
 
   const unpinned = notes.filter(n => !n.pinned && !(n.expires_at && new Date(n.expires_at) > new Date()));
 
-  // Inbox second: unpinned notes with no tags
-  const inbox = unpinned.filter(n => n.tags.length === 0);
-  renderNoteGroup('inbox', icon('inbox') + '<span>Inbox</span>', inbox);
+  // All notes: every unpinned note, tagged or not, last edited first. Tagged
+  // notes also appear in their tag groups below.
+  renderNoteGroup('all', icon('inbox') + '<span>All notes</span>', unpinned, $notesList, false, appendDateBuckets);
 
   // Tags parent section: all tagged notes grouped by tag
   const allTags = [...new Set(unpinned.flatMap(n => n.tags))].sort();

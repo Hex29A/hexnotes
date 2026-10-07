@@ -430,10 +430,13 @@ raises the offline bar. On mobile the app switches to the list view so the
 message is seen even with no note open. The box clears itself on the next
 successful load.
 
-**Order in the sidebar:** inside every group (Ephemeral, Pinned, Inbox, each
-tag) notes are sorted by **created** date, newest first, with last edit as the
-tie-breaker for notes created the same day. This is a frontend ordering only —
-`GET /api/notes` still returns notes sorted by `updated_at`.
+**Order in the sidebar:** **All notes** is sorted by **last edit**, newest
+first, under the date headings Today, Yesterday, Last 7 days and Older (the
+viewer's local calendar days; empty headings are skipped), so a note you just
+saved moves to the top. Inside Ephemeral, Pinned and each tag group notes are
+sorted by **created** date, newest first, with last edit as the tie-breaker for
+notes created the same day. This is a frontend ordering only — `GET /api/notes`
+returns notes sorted by `updated_at`.
 
 **The open note updates too**, not just the sidebar — so a note edited by an AI
 agent or another device refreshes under you within ~30s. This reuses the list
@@ -472,12 +475,12 @@ their version to `.history/` first, so nothing is lost either way.
 Notes are organized into collapsible groups:
 
 - **📌 Pinned** — notes pinned via the 📌 button in the filename bar
-- **📥 Inbox** — untagged notes (no `#tags` in content)
+- **📥 All notes** — every note that is not pinned or ephemeral, tagged or not, last edited first under date headings
 - **🏷 Tags** — parent group containing one sub-group per `#tag`
 
 Group collapse state is saved per-group in `localStorage`. A **collapse all / expand all** toggle is available at the top of the list.
 
-To organize notes into a tag group, add `#tagname` anywhere in the note body. Notes with multiple tags appear in each relevant group.
+To organize notes into a tag group, add `#tagname` anywhere in the note body. Notes with multiple tags appear in each relevant group, and still appear in All notes.
 
 At the bottom of the sidebar: **🗑 Trash** opens the trash dialog, and a discreet **theme toggle** cycles auto → dark → light (auto follows the system preference; the choice is saved in `localStorage` and applied before first paint). The running app version is shown in the topbar next to the HexNotes title.
 
@@ -545,7 +548,7 @@ Every opened note gets a hash URL (`#note-id`) pushed to browser history:
 docker compose run --rm hexnotes pytest tests/ -v --tb=short
 ```
 
-148 tests:
+150 tests:
 
 | File | Covers |
 |------|--------|
@@ -558,7 +561,7 @@ docker compose run --rm hexnotes pytest tests/ -v --tb=short
 | `tests/test_ephemeral_ui.py` | Ephemeral rendering in the sidebar |
 | `tests/test_rename_ttl.py` | TTL survives rename |
 | `tests/test_fab.py` | Mobile FAB long-press ephemeral flow |
-| `tests/test_list_ui.py` | Sidebar list errors and created-date ordering |
+| `tests/test_list_ui.py` | Sidebar list errors, created-date ordering, All notes with date headings |
 
 Frontend features (sidebar, palette, find bar, preview, dialogs) are pure client-side and do not have automated tests.
 

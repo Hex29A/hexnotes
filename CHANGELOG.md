@@ -9,6 +9,22 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.39 (2026-10-07)
+
+- **Inbox heter nu All notes och innehåller alla ofästa noter**, taggade som
+  otaggade. Tidigare hamnade en taggad not bara i sin taggrupp under Tags, som
+  är ihopfälld från start, så en ny dagboksnot med `#GROT` syntes inte överst
+  efter refresh. Taggade noter syns nu både i All notes och i sin taggrupp.
+- **All notes sorteras efter senaste ändring**, nyaste överst, under
+  datumrubrikerna Today, Yesterday, Last 7 days och Older (lokal kalenderdag;
+  tomma rubriker visas inte). En not man sparar flyttas direkt upp under Today.
+  Pinned, Ephemeral och taggrupperna sorteras som förut efter skapad (#14).
+- Hopfällningsläget för All notes sparas under en ny nyckel, så ett gammalt
+  ihopfällt Inbox gömmer inte den nya gruppen.
+- Nya tester i `tests/test_list_ui.py`; beteendet verifierat i headless Chromium
+  (ordning, datumrubriker, taggad not i båda grupperna, spara flyttar upp,
+  sparad hopfällning, sökning, mobilvy).
+
 ## 1.38 (2026-10-06)
 
 - **Notlistan visar fel i stället för att bli tom** (#13). `loadNotes` och

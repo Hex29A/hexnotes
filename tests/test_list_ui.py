@@ -36,3 +36,23 @@ def test_groups_sort_newest_created_first():
     """Inom varje grupp ska den senast skapade noten ligga överst. Se #14."""
     assert "b.created_at" in _function("sortNewestCreated")
     assert "sortNewestCreated(groupNotes)" in _function("renderNoteGroup")
+
+
+def test_all_notes_group_holds_every_unpinned_note():
+    """Inbox visade bara otaggade noter, så en taggad dagboksnot syntes inte
+    överst efter refresh (2026-10-07). All notes tar med alla ofästa."""
+    body = _function("renderNotesList")
+    assert "'<span>All notes</span>', unpinned," in body
+    assert "n.tags.length === 0" not in body
+    assert "<span>Inbox</span>" not in SRC
+
+
+def test_all_notes_sorted_by_last_edit_under_date_headings():
+    assert "b.updated_at" in _function("sortRecentlyUpdated")
+    assert "b.created_at" not in _function("sortRecentlyUpdated")
+    fill = _function("appendDateBuckets")
+    assert "sortRecentlyUpdated(list)" in fill
+    assert "dateBucket(n.updated_at)" in fill
+    buckets = _function("dateBucket")
+    for label in ("'Today'", "'Yesterday'", "'Last 7 days'", "'Older'"):
+        assert label in buckets

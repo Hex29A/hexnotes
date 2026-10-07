@@ -1225,7 +1225,7 @@ mark {
         <button id="filename-edit-btn" title="Rename">✎</button>
         <button id="filename-pin-btn" title="Pin to top">📌</button>
         <button id="filename-history-btn" title="Version history">🕘</button>
-        <button id="filename-checklist-btn" title="Infoga checklista">☑</button>
+        <button id="filename-checklist-btn" title="Insert checklist">☑</button>
         <button id="filename-preview-btn" title="Preview (Ctrl+M)">👁</button>
         <button id="filename-delete-btn" title="Delete note">🗑</button>
       </div>
@@ -1331,7 +1331,7 @@ let notes = [];
 let activeNoteId = null;
 let isNew = false;
 let newNoteFilename = null;
-let ephemeralArmed = false;  // nasta nya not blir ephemeral (48h)
+let ephemeralArmed = false;  // the next new note will be ephemeral (48h)
 let activeExpiresAt = null;
 let pendingContent = null;
 // Version (content hash) the open editor is based on. Sent as base_version on
@@ -1541,9 +1541,10 @@ function clearListError() {
 document.getElementById('btn-list-retry').addEventListener('click', () => loadNotes());
 
 // === SECTION: AUTO-REFRESH ===
-// Fillistan hålls färsk utan manuell reload: poll var 30:e sekund (bara när
-// fliken är synlig) + direkt när fliken får fokus igen. Ritar bara om när
-// listan faktiskt ändrats, så scrolläge och pågående redigering störs inte.
+// The note list stays fresh without a manual reload: a poll every 30 seconds
+// (only while the tab is visible) + immediately when the tab regains focus.
+// Only re-renders when the list actually changed, so scroll position and
+// ongoing edits are not disturbed.
 function notesSignature(list) {
   return JSON.stringify(list.map(n => [n.id, n.updated_at, n.pinned]));
 }
@@ -1561,7 +1562,7 @@ async function pollNotes() {
     }
     clearListError();
   } catch (err) {
-    // Nästa poll försöker igen, men tomheten ska inte se ut som ett svar
+    // The next poll tries again, but the emptiness must not look like an answer
     showListError(err);
   }
 }
@@ -1592,10 +1593,10 @@ function setHighlighted(el, text, query, offset = 0) {
 
 function ttlLabel(expiresAt) {
   const ms = new Date(expiresAt) - new Date();
-  if (ms <= 0) return 'utgången';
+  if (ms <= 0) return 'expired';
   const h = Math.floor(ms / 3600000);
-  if (h >= 1) return h + 'h kvar';
-  return Math.max(1, Math.floor(ms / 60000)) + 'm kvar';
+  if (h >= 1) return h + 'h left';
+  return Math.max(1, Math.floor(ms / 60000)) + 'm left';
 }
 
 function refreshEphemeralBadges() {
@@ -2077,7 +2078,7 @@ async function save(content) {
         notes = await fetchAllNotes();
         renderNotesList();
       } catch {
-        // Listan hämtas om vid nästa poll
+        // The list is refetched on the next poll
       }
     } else if (res.status === 409) {
       // Someone else (AI agent, another device) wrote while we had it open.
@@ -2648,7 +2649,7 @@ async function doRename() {
           notes = await fetchAllNotes();
           renderNotesList();
         } catch {
-          // Listan hämtas om vid nästa poll
+          // The list is refetched on the next poll
         }
       } else if (res.status === 409) {
         $filenameError.textContent = 'A note with that name already exists';
@@ -2677,7 +2678,7 @@ async function doRename() {
         notes = await fetchAllNotes();
         renderNotesList();
       } catch {
-        // Listan hämtas om vid nästa poll
+        // The list is refetched on the next poll
       }
     } else if (res.status === 409) {
       $filenameError.textContent = 'A note with that name already exists';
@@ -3076,8 +3077,8 @@ $editor.addEventListener('keydown', e => {
     $editor.dispatchEvent(new Event('input'));
     return;
   }
-  // Enter på en checkbox-/punktrad fortsätter listan automatiskt;
-  // Enter på en tom punkt avslutar listan (tar bort markeringen).
+  // Enter on a checkbox/bullet line continues the list automatically;
+  // Enter on an empty item ends the list (removes the marker).
   if (e.key === 'Enter' && !e.shiftKey && $editor.selectionStart === $editor.selectionEnd) {
     const val = $editor.value, pos = $editor.selectionStart;
     const lineStart = val.lastIndexOf('\n', pos - 1) + 1;
@@ -3102,7 +3103,7 @@ $editor.addEventListener('keydown', e => {
   }
 });
 
-// Knapp: gör aktuell rad (eller varje markerad rad) till en checkruta.
+// Button: turn the current line (or every selected line) into a checkbox.
 function insertChecklist() {
   if (isPreviewMode) setPreviewMode(false);
   const val = $editor.value;
@@ -3167,7 +3168,7 @@ $fab.addEventListener('click', () => createNewNote(false));
   let longFired = false;
 
   function start(e) {
-    if (!('ontouchstart' in window)) return;  // bara pekskarm
+    if (!('ontouchstart' in window)) return;  // touch screens only
     longFired = false;
     $fab.classList.add('holding');
     document.getElementById('fab-hint').classList.add('visible');
@@ -3190,7 +3191,7 @@ $fab.addEventListener('click', () => createNewNote(false));
   $fab.addEventListener('touchend', cancel);
   $fab.addEventListener('touchmove', cancel, { passive: true });
   $fab.addEventListener('touchcancel', cancel);
-  // Blockera den syntetiska clicken efter ett langtryck
+  // Block the synthetic click after a long press
   $fab.addEventListener('click', e => {
     if (longFired) { e.stopImmediatePropagation(); longFired = false; }
   }, true);

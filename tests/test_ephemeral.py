@@ -1,4 +1,4 @@
-"""Tester för ephemeral notes (expires_at / ttl_hours)."""
+"""Tests for ephemeral notes (expires_at / ttl_hours)."""
 from datetime import datetime, timedelta, UTC
 
 
@@ -37,7 +37,7 @@ def test_sweep_moves_expired_to_trash(client, auth, tmp_notes):
     from backend.main import build_index, _sweep_expired, invalidate
     r = client.post("/api/notes", json={"content": "redan utgangen"}, headers=auth)
     note_id = r.json()["id"]
-    # Skriv in ett redan utgånget expires_at direkt i filen
+    # Write an already expired expires_at straight into the file
     path = tmp_notes / f"{note_id}.md"
     nl = chr(10)
     raw = path.read_text().replace('---' + nl, '---' + nl + 'expires_at: 2000-01-01T00:00:00+00:00' + nl, 1)
@@ -51,11 +51,11 @@ def test_sweep_moves_expired_to_trash(client, auth, tmp_notes):
 # === Regression: the sweep used to compare timestamps as strings ===
 
 def test_ttl_note_survives_until_its_ttl(client, auth, tmp_notes):
-    """En not vars TTL går ut senare samma UTC-dygn får inte svepas.
+    """A note whose TTL runs out later the same UTC day must not be swept.
 
-    Buggen: expires_at skrevs oquoterat, YAML gav tillbaka ett datetime vars
-    str() är mellanslagsseparerad, och strängjämförelsen mot isoformat() lät
-    " " (0x20) vinna över "T" (0x54). Varje efemär not dog vid midnatt UTC.
+    The bug: expires_at was written unquoted, YAML gave back a datetime whose
+    str() is space-separated, and the string comparison with isoformat() let
+    " " (0x20) win over "T" (0x54). Every ephemeral note died at midnight UTC.
     """
     from backend.main import _sweep_expired
     now = datetime.now(UTC)
@@ -67,20 +67,20 @@ def test_ttl_note_survives_until_its_ttl(client, auth, tmp_notes):
     r = client.post("/api/notes", json={"content": "lever an", "ttl_hours": hours}, headers=auth)
     note_id = r.json()["id"]
     assert _sweep_expired() == 0
-    assert (tmp_notes / f"{note_id}.md").exists(), "noten svepte bort före sin TTL"
+    assert (tmp_notes / f"{note_id}.md").exists(), "the note was swept before its TTL"
 
 
 def test_expires_at_is_iso_8601(client, auth):
-    """new Date() i frontend kräver "T", inte mellanslag — Safari ger annars
-    Invalid Date och nedräkningen visar NaN."""
+    """new Date() in the frontend needs "T", not a space — otherwise Safari
+    gives Invalid Date and the countdown shows NaN."""
     r = client.post("/api/notes", json={"content": "iso", "ttl_hours": 6}, headers=auth)
     exp = r.json()["expires_at"]
-    assert " " not in exp, f"expires_at är inte ISO 8601: {exp!r}"
+    assert " " not in exp, f"expires_at is not ISO 8601: {exp!r}"
     datetime.fromisoformat(exp)
 
 
 def test_expires_at_stays_iso_through_a_write(client, auth):
-    """Formatet måste överleva YAML-rundturen, inte bara första svaret."""
+    """The format must survive the YAML round trip, not just the first response."""
     r = client.post("/api/notes", json={"content": "v1", "ttl_hours": 6}, headers=auth)
     note_id = r.json()["id"]
     r2 = client.patch(f"/api/notes/{note_id}", json={"content": "v2"}, headers=auth)
@@ -90,7 +90,7 @@ def test_expires_at_stays_iso_through_a_write(client, auth):
 
 
 def test_sweep_keeps_note_with_unreadable_expiry(client, auth, tmp_notes):
-    """Ett oläsligt expires_at betyder "vet inte" — noten ska överleva."""
+    """An unreadable expires_at means "don't know" — the note must survive."""
     from backend.main import build_index, _sweep_expired
     r = client.post("/api/notes", json={"content": "skrap"}, headers=auth)
     note_id = r.json()["id"]

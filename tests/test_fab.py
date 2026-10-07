@@ -6,7 +6,7 @@ def test_fab_hint_element_served(client):
 
 
 def test_longpress_code_present(client):
-    """Langtryckslogiken ska servas: touchstart-listener + HOLD_MS pa FAB."""
+    """The long-press logic must be served: touchstart listener + HOLD_MS on the FAB."""
     import re
     html = client.get("/").text
     js = "".join(re.findall(r"<script>(.*?)</script>", html, re.S))

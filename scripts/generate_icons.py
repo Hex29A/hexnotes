@@ -3,7 +3,7 @@
 Design: green "emalj" hexagon badge - a diagonal gradient fill, a thin
 darker border, a soft gloss highlight, and the HexNotes "folded page"
 glyph in white. Same geometry as static/favicon.svg and the app's
---accent token (see docs.29a.se/... ikonförslag, 2026-09-09).
+--accent token (see the icon proposal on docs.29a.se, 2026-09-09).
 Runs as a RUN step inside the Docker build.
 """
 

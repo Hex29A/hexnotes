@@ -27,7 +27,7 @@ mimetypes.add_type("font/woff2", ".woff2")
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-APP_VERSION = "1.40"  # bump minor for features, major for breaking changes — see CHANGELOG.md
+APP_VERSION = "1.41"  # bump minor for features, major for breaking changes — see CHANGELOG.md
 
 # Upper bound on GET /api/notes?limit=. The frontend asks for 200, so the
 # cap sits above that rather than on it, leaving room to raise the client
@@ -406,10 +406,10 @@ def invalidate_delete(note_id: str):
 # Version history
 # ---------------------------------------------------------------------------
 HISTORY_DIRNAME = ".history"
-# Autospar gjorde en ny snapshot vid varje ändring och ingenting städade: 1140
-# versioner på 4,8 MB för 161 noter, där en enda not stod för 215. Taket gäller
-# per not och slår till vid nästa sparning, så gammal historik gallras gradvis
-# i stället för i ett svep.
+# Autosave made a new snapshot on every change and nothing ever cleaned up:
+# 1140 versions, 4.8 MB, for 161 notes, one of which accounted for 215. The cap
+# is per note and kicks in on the next save, so old history is pruned gradually
+# rather than in one sweep.
 HISTORY_MAX_VERSIONS = 50
 VERSION_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{6}$")
 
@@ -419,12 +419,12 @@ def _history_dir(note_id: str) -> Path:
 
 
 def _prune_history(note_id: str) -> int:
-    """Behåll de HISTORY_MAX_VERSIONS senaste versionerna. Returnerar antal
-    raderade.
+    """Keep the HISTORY_MAX_VERSIONS newest versions. Returns the number
+    deleted.
 
-    Versionsnamnen är tidsstämplar med fast bredd, så lexikografisk ordning
-    är kronologisk ordning. Bara filer som matchar VERSION_RE rörs — allt
-    annat som råkar ligga i katalogen lämnas ifred.
+    Version names are fixed-width timestamps, so lexicographic order is
+    chronological order. Only files matching VERSION_RE are touched —
+    anything else that happens to be in the directory is left alone.
     """
     hist = _history_dir(note_id)
     if not hist.is_dir():
@@ -444,7 +444,7 @@ def _prune_history(note_id: str) -> int:
 
 
 def _snapshot_note(note_id: str):
-    """Spara nuvarande version av noten till .history/<note_id>/<timestamp>.md"""
+    """Save the current version of the note to .history/<note_id>/<timestamp>.md"""
     path = NOTES_PATH / f"{note_id}.md"
     if not path.exists():
         return
@@ -469,9 +469,9 @@ TRASH_NAME_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{6})__(.+\.
 
 
 def _move_to_trash(note_id: str) -> str:
-    """Flytta noten till papperskorgen med timestampat namn (skriver aldrig
-    över) och ta historiken med till .trash/.history/. En sista snapshot tas
-    först så att historiken är komplett."""
+    """Move the note to the trash under a timestamped name (never
+    overwrites) and take its history along to .trash/.history/. A final
+    snapshot is taken first so the history is complete."""
     path = NOTES_PATH / f"{note_id}.md"
     _snapshot_note(note_id)
     ts = datetime.now(UTC).strftime("%Y-%m-%dT%H-%M-%S-%f")
@@ -487,7 +487,7 @@ def _move_to_trash(note_id: str) -> str:
 
 
 def _trash_entry_path(name: str) -> Path:
-    """Validera trash-namn strikt och returnera sökvägen, annars 404."""
+    """Strictly validate a trash name and return its path, otherwise 404."""
     if (
         "/" in name or "\\" in name or ".." in name
         or name.startswith(".") or not name.endswith(".md")
@@ -500,8 +500,8 @@ def _trash_entry_path(name: str) -> Path:
 
 
 def _trash_meta(p: Path) -> tuple[str, str]:
-    """(ursprungligt filnamn, raderingstidpunkt) för en trash-fil.
-    Filer från tiden före timestampade namn faller tillbaka på mtime."""
+    """(original filename, deletion time) for a trash file.
+    Files from before timestamped names fall back on mtime."""
     m = TRASH_NAME_RE.match(p.name)
     if m:
         return m.group(2), _version_timestamp(m.group(1))
@@ -612,12 +612,12 @@ Make it yours: fill it with [[wiki-links]] to your important notes.
 
 
 def _sweep_expired() -> int:
-    """Flytta noter med utgången expires_at till papperskorgen. Returnerar antal.
+    """Move notes with an expired expires_at to the trash. Returns the count.
 
-    Jämför som datetime. Den gamla strängjämförelsen gick på ISO-texten, där
-    ett mellanslag sorterar före "T" — så fort datumdelen var lika ansågs
-    noten utgången, och en efemär not dog vid midnatt UTC i stället för vid
-    sin TTL.
+    Compares as datetime. The old string comparison ran on the ISO text, where
+    a space sorts before "T" — as soon as the date part matched the note
+    counted as expired, and an ephemeral note died at midnight UTC instead of
+    at its TTL.
     """
     now = datetime.now(UTC)
     count = 0
@@ -955,7 +955,7 @@ async def get_note_raw(note_id: str, _=Depends(require_token)):
 
 @app.delete("/api/trash")
 async def empty_trash(_=Depends(require_token)):
-    """Töm papperskorgen permanent — alla filer och all deras historik."""
+    """Empty the trash permanently — every file and all of its history."""
     purged = 0
     if TRASH_PATH.is_dir():
         for f in TRASH_PATH.glob("*.md"):
@@ -1023,7 +1023,7 @@ async def restore_trash_entry(name: str, _=Depends(require_token)):
 
 @app.delete("/api/trash/{name}")
 async def purge_trash_entry(name: str, _=Depends(require_token)):
-    """Radera permanent — tar bort både filen och dess historik."""
+    """Delete permanently — removes both the file and its history."""
     p = _trash_entry_path(name)
     hist = TRASH_PATH / ".history" / p.stem
     p.unlink()

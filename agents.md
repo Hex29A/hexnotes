@@ -1,41 +1,41 @@
 # agents.md – HexNotes
 
-> Detaljerad byggspecifikation för en självhostad Google Keep-klon med Markdown-filer och REST API.
+> Detailed build specification for a self-hosted Google Keep clone with Markdown files and a REST API.
 
 ---
 
-## Projektöversikt
+## Project overview
 
-**HexNotes** är en lättviktig, självhostad anteckningsapp inspirerad av Google Keep.
-All data lagras som plain `.md`-filer på disk. Ingen databas.
-Appen exponerar ett REST API för integration med Claude Code och andra verktyg.
+**HexNotes** is a lightweight, self-hosted note-taking app inspired by Google Keep.
+All data is stored as plain `.md` files on disk. No database.
+The app exposes a REST API for integration with Claude Code and other tools.
 
-**Målmiljö: Docker.** Projektet byggs och körs uteslutande som Docker-container. Det ska inte finnas något behov av att installera Python eller andra beroenden lokalt – allt sker inuti imagen.
+**Target environment: Docker.** The project is built and run exclusively as a Docker container. There should be no need to install Python or other dependencies locally – everything happens inside the image.
 
-### Mål
+### Goals
 
-- Snabb input av korta snippets från mobil och desktop
-- Autospar utan manuell spara-knapp
-- Sökning och filtrering via `#taggar`
-- Tillgänglig via webbläsaren – ingen app att installera
-- Installerbar som PWA (dockad app i Windows, hemskärm på mobil)
-- Claude Code kan läsa och skriva via REST API
-
----
-
-## Teknikstack
-
-| Komponent | Val | Motivering |
-|-----------|-----|------------|
-| Backend | Python 3.12 + FastAPI | Lätt, snabbt, autogenererad API-docs |
-| Frontend | Vanilla HTML/CSS/JS | Ingen build-step, enkel att underhålla |
-| Fillagring | `.md`-filer på disk | Plain text, Claude Code-läsbart |
-| Container | Docker + docker-compose | Enkel deploy på VPS |
-| Reverse proxy | Nginx Proxy Manager | Redan i befintlig stack |
+- Quick input of short snippets from mobile and desktop
+- Autosave without a manual save button
+- Search and filtering via `#tags`
+- Available in the browser – no app to install
+- Installable as a PWA (docked app on Windows, home screen on mobile)
+- Claude Code can read and write via the REST API
 
 ---
 
-## Filstruktur
+## Tech stack
+
+| Component | Choice | Rationale |
+|-----------|--------|-----------|
+| Backend | Python 3.12 + FastAPI | Light, fast, auto-generated API docs |
+| Frontend | Vanilla HTML/CSS/JS | No build step, easy to maintain |
+| File storage | `.md` files on disk | Plain text, readable by Claude Code |
+| Container | Docker + docker-compose | Simple deploy on a VPS |
+| Reverse proxy | Nginx Proxy Manager | Already in the existing stack |
+
+---
+
+## File structure
 
 ```
 hexnotes/
@@ -43,42 +43,42 @@ hexnotes/
 ├── Dockerfile
 ├── requirements.txt
 ├── .env.example
-├── tokens.json              # namngivna API-tokens (se Auth)
+├── tokens.json              # named API tokens (see Auth)
 ├── backend/
-│   └── main.py              # FastAPI app, all backend-logik
+│   └── main.py              # FastAPI app, all backend logic
 ├── scripts/
-│   └── generate_icons.py    # Genererar PWA-ikoner vid docker build
+│   └── generate_icons.py    # Generates PWA icons during docker build
 ├── static/
-│   ├── index.html           # Hela frontend (single file)
-│   ├── manifest.json        # PWA-manifest
+│   ├── index.html           # The whole frontend (single file)
+│   ├── manifest.json        # PWA manifest
 │   ├── sw.js                # Service Worker (minimal)
-│   ├── icon-192.png         # PWA-ikon (genererad via Pillow)
-│   └── icon-512.png         # PWA-ikon (genererad via Pillow)
-└── notes/                   # Monterad volym – dina .md-filer
-    └── .trash/              # Raderade notes hamnar här
+│   ├── icon-192.png         # PWA icon (generated with Pillow)
+│   └── icon-512.png         # PWA icon (generated with Pillow)
+└── notes/                   # Mounted volume – your .md files
+    └── .trash/              # Deleted notes end up here
 ```
 
 ---
 
-## Filnamnkonvention
+## Filename convention
 
-Filnamnet genereras vid skapandet men kan när som helst ändras manuellt via rename-funktionen i UI:t eller via `POST /api/notes/{id}/rename`. Datumet i default-filnamnet är alltid skapandedatum – systemet eller autospar ändrar aldrig filnamnet automatiskt. Endast användaren kan byta namn.
+The filename is generated on creation but can be changed manually at any time via the rename function in the UI or via `POST /api/notes/{id}/rename`. The date in the default filename is always the creation date – neither the system nor autosave ever changes the filename automatically. Only the user can rename.
 
-### Default: datum
+### Default: date
 
-> **Not:** slug-generering från första textraden byggdes aldrig färdigt och togs
-> bort i 1.24. Default-filnamnet är bara datumet – vilket också är det som gör
-> `Ctrl+D` (dagens note) möjligt, eftersom dagens fil måste ha ett förutsägbart
-> namn. `README.md` beskriver det faktiska beteendet.
+> **Note:** slug generation from the first line of text was never finished and
+> was removed in 1.24. The default filename is just the date – which is also
+> what makes `Ctrl+D` (today's note) possible, since today's file must have a
+> predictable name. `README.md` describes the actual behaviour.
 
 ```
 2025-04-03.md
-2025-04-03-2.md               ← vid kollision samma dag
+2025-04-03-2.md               ← on a collision the same day
 ```
 
-### Tidlös note (inget datum)
+### Timeless note (no date)
 
-Om användaren ändrar filnamnet vid skapandet används det namnet rakt av:
+If the user changes the filename on creation, that name is used as is:
 
 ```
 ideas.md
@@ -86,19 +86,19 @@ todo.md
 snippets.md
 ```
 
-### Regler för default-filnamn (används bara om användaren inte angett filnamn)
+### Rules for default filenames (only used if the user has not given a filename)
 
-- Dagens datum, `YYYY-MM-DD.md`
-- Kollision med befintlig fil → suffix `-2`, `-3`
-- `.md`-extension läggs alltid till automatiskt om den saknas
+- Today's date, `YYYY-MM-DD.md`
+- Collision with an existing file → suffix `-2`, `-3`
+- The `.md` extension is always added automatically if missing
 
 ---
 
 ## Backend – FastAPI (`backend/main.py`)
 
-### Autentisering – namngivna tokens
+### Authentication – named tokens
 
-Istället för en enda delad token används en lista med namngivna tokens i `tokens.json`:
+Instead of a single shared token, a list of named tokens in `tokens.json` is used:
 
 ```json
 {
@@ -110,45 +110,45 @@ Istället för en enda delad token används en lista med namngivna tokens i `tok
 }
 ```
 
-Alla API-endpoints kräver headern:
+Every API endpoint requires the header:
 ```
 Authorization: Bearer <token>
 ```
 
-Backend accepterar alla tokens i listan. Token-namnet loggas per request för spårbarhet. En enskild token kan revokeras utan att påverka övriga. `tokens.json` laddas vid start och vid varje ändring via admin-endpointen.
+The backend accepts every token in the list. The token name is logged per request for traceability. A single token can be revoked without affecting the others. `tokens.json` is loaded at startup and on every change via the admin endpoint.
 
-### Admin-endpoints
+### Admin endpoints
 
-Skyddas av `ADMIN_SECRET` från `.env` – aldrig samma värde som en vanlig token.
+Protected by `ADMIN_SECRET` from `.env` – never the same value as a regular token.
 
 #### `POST /admin/tokens`
-Skapa ny namngiven token.
+Create a new named token.
 ```
 Authorization: Bearer <admin-secret>
 Body: { "name": "work-laptop" }
 Response: { "name": "work-laptop", "token": "tok_xyz999", "created_at": "..." }
 ```
-Token sparas direkt i `tokens.json` och är aktiv omedelbart.
+The token is saved straight to `tokens.json` and is active immediately.
 
 #### `DELETE /admin/tokens/{name}`
-Revokera token med angivet namn.
+Revoke the token with the given name.
 
 #### `GET /admin/tokens`
-Lista alla tokens – visar namn och datum, aldrig token-värdet.
+List all tokens – shows name and date, never the token value.
 
-**Typiskt Claude Code-flöde:**
+**Typical Claude Code flow:**
 ```
-Du: "Skapa en token för min nya laptop, kalla den work-laptop"
+You: "Create a token for my new laptop, call it work-laptop"
 Claude Code → POST /admin/tokens {"name": "work-laptop"}
-Claude Code: "Din token: tok_xyz999"
+Claude Code: "Your token: tok_xyz999"
 ```
 
-### Note-endpoints
+### Note endpoints
 
 #### `GET /api/notes`
-Lista alla notes, sorterade efter `updated_at` fallande.
+List all notes, sorted by `updated_at` descending.
 
-Query params: `q` (fritext), `tag`, `limit` (default 50), `offset`
+Query params: `q` (free text), `tag`, `limit` (default 50), `offset`
 
 Response per note:
 ```json
@@ -164,99 +164,99 @@ Response per note:
 }
 ```
 
-`is_timeless: true` om filnamnet saknar datumprefix (`YYYY-MM-DD-`).
+`is_timeless: true` if the filename has no date prefix (`YYYY-MM-DD-`).
 
 #### `POST /api/notes`
-Skapa ny note.
+Create a new note.
 ```json
-{ "content": "Text\n\n#tagg", "filename": "ideas.md" }
+{ "content": "Text\n\n#tag", "filename": "ideas.md" }
 ```
-`filename` är valfritt. Om det utelämnas genereras `YYYY-MM-DD.md`.
-Kollision returnerar `409 Conflict`.
+`filename` is optional. If omitted, `YYYY-MM-DD.md` is generated.
+A collision returns `409 Conflict`.
 
 #### `GET /api/notes/{id}`
-Hämta specifik note. `id` = filnamnet utan `.md`.
+Get a specific note. `id` = the filename without `.md`.
 
 #### `PATCH /api/notes/{id}`
-Uppdatera innehållet. Filnamnet ändras **inte** via denna endpoint.
+Update the content. The filename is **not** changed through this endpoint.
 
 ```json
-{ "content": "Uppdaterad text" }
+{ "content": "Updated text" }
 ```
 
-Content är **alltid hela noteinnehållet**, aldrig en diff. Backend skriver filen rakt av.
+Content is **always the whole note content**, never a diff. The backend writes the file as is.
 
-Om `content` är tom sträng eller enbart whitespace → flytta filen till `.trash/` och returnera `204 No Content`.
+If `content` is an empty string or only whitespace → move the file to `.trash/` and return `204 No Content`.
 
-**OBS:** Frontend får **inte** trigga detta via autospar mitt i skrivandet. Auto-trash triggas endast när användaren lämnar noten (blur-event på textarea) och innehållet är tomt. Autospar under pågående skrivning skickar aldrig PATCH med tomt innehåll.
+**NOTE:** The frontend must **not** trigger this through autosave in the middle of typing. Auto-trash is only triggered when the user leaves the note (blur event on the textarea) and the content is empty. Autosave during ongoing typing never sends a PATCH with empty content.
 
-Om en fil med samma namn redan finns i `.trash/` skrivs den över (samma beteende som DELETE).
+If a file with the same name already exists in `.trash/` it is overwritten (same behaviour as DELETE).
 
-`updated_at` hämtas från filens `mtime` – backend skriver aldrig timestamps manuellt.
-`created_at` extraheras från datumprefixet i filnamnet (`2025-04-03-...`) om det finns. Annars används `mtime`. ctime används **inte** – den är opålitlig i Docker-volymer och uppdateras vid metadata-ändringar som chmod och flytt.
+`updated_at` is taken from the file's `mtime` – the backend never writes timestamps manually.
+`created_at` is extracted from the date prefix in the filename (`2025-04-03-...`) if there is one. Otherwise `mtime` is used. ctime is **not** used – it is unreliable in Docker volumes and is updated by metadata changes such as chmod and moves.
 
 #### `POST /api/notes/{id}/rename`
-Byt filnamn på en befintlig note.
+Rename an existing note.
 
 ```json
 { "new_filename": "docker-cheatsheet.md" }
 ```
 
 Backend:
-1. Validerar att `new_filename` inte redan existerar → `409 Conflict` med meddelandet "En note med det namnet finns redan"
-2. `os.rename(gamla_path, nya_path)`
-3. Returnerar uppdaterat note-objekt med nytt `id` och `filename`
+1. Validates that `new_filename` does not already exist → `409 Conflict` with the message "A note with that name already exists"
+2. `os.rename(old_path, new_path)`
+3. Returns the updated note object with the new `id` and `filename`
 
-`.md` läggs till automatiskt om det saknas.
+`.md` is added automatically if missing.
 
-Frontend **måste** omedelbart uppdatera `activeNoteId` och alla referenser till det gamla ID:t när rename lyckas. Annars kommer efterföljande PATCH-anrop att returnera 404.
+The frontend **must** immediately update `activeNoteId` and every reference to the old ID when a rename succeeds. Otherwise subsequent PATCH calls will return 404.
 
 #### `DELETE /api/notes/{id}`
-Flytta till `notes/.trash/{filename}`. Inte permanent delete.
+Move to `notes/.trash/{filename}`. Not a permanent delete.
 
-Om en fil med samma namn redan finns i `.trash/` skrivs den över – trash är inte ett arkiv utan en säkerhetsbuffert.
+If a file with the same name already exists in `.trash/` it is overwritten – the trash is not an archive but a safety buffer.
 
 #### `GET /api/notes/{id}/raw`
-Returnerar filinnehållet som `text/plain`.
+Returns the file content as `text/plain`.
 
 #### `GET /health`
 ```json
 { "status": "ok", "notes_count": 42 }
 ```
 
-### Filhantering
+### File handling
 
-- Notes: `/app/notes/` (monterad Docker-volym)
+- Notes: `/app/notes/` (mounted Docker volume)
 - Trash: `/app/notes/.trash/`
-- Filer som börjar med `.` ignoreras vid listning
-- Sökning: görs mot in-memory index (se nedan)
+- Files starting with `.` are ignored when listing
+- Search: done against the in-memory index (see below)
 
-### Startup-logik
+### Startup logic
 
-Vid start utför backend följande innan den börjar ta emot requests:
+At startup the backend does the following before it starts accepting requests:
 
-1. Skapa `tokens.json` om filen saknas (`{ "tokens": [] }`)
-2. Skapa `/app/notes/.trash/` om mappen saknas
-3. Bygga in-memory index från alla `.md`-filer i `/app/notes/`
+1. Create `tokens.json` if the file is missing (`{ "tokens": [] }`)
+2. Create `/app/notes/.trash/` if the folder is missing
+3. Build the in-memory index from every `.md` file in `/app/notes/`
 
 ```python
 @app.on_event("startup")
 async def startup():
-    # Säkerställ att tokens.json finns
+    # Make sure tokens.json exists
     if not TOKENS_PATH.exists():
         TOKENS_PATH.write_text('{"tokens": []}')
-    # Säkerställ att trash-mappen finns (volymen kan vara ny)
+    # Make sure the trash folder exists (the volume may be new)
     TRASH_PATH.mkdir(parents=True, exist_ok=True)
-    # Bygg index
+    # Build the index
     await build_index()
 ```
 
 ### In-memory index
 
-Backend bygger ett index över alla notes vid start. Indexet hålls i minnet och invalideras vid varje write, rename eller delete. Sökning sker alltid mot indexet – aldrig direkt mot disk per request.
+The backend builds an index of all notes at startup. The index is kept in memory and invalidated on every write, rename or delete. Search always runs against the index – never directly against disk per request.
 
 ```python
-# Pseudokod
+# Pseudocode
 notes_index: dict[str, NoteEntry] = {}  # id → NoteEntry
 
 @app.on_event("startup")
@@ -265,11 +265,11 @@ async def build_index():
         notes_index[f.stem] = parse_note(f)
 
 def invalidate(note_id: str):
-    # Uppdatera befintligt entry (write/PATCH)
+    # Update the existing entry (write/PATCH)
     notes_index[note_id] = parse_note(Path(f"/app/notes/{note_id}.md"))
 
 def invalidate_rename(old_id: str, new_id: str):
-    # Ta bort gammalt entry, lägg till nytt
+    # Remove the old entry, add the new one
     notes_index.pop(old_id, None)
     notes_index[new_id] = parse_note(Path(f"/app/notes/{new_id}.md"))
 
@@ -277,11 +277,11 @@ def invalidate_delete(note_id: str):
     notes_index.pop(note_id, None)
 ```
 
-Indexet läser varje fil en gång vid start. Vid 500 filer är detta försumbart. Sökning är därefter O(n) i minnet – inga disk-reads per tangenttryckning.
+The index reads each file once at startup. At 500 files this is negligible. After that, search is O(n) in memory – no disk reads per keystroke.
 
 ### Frontmatter
 
-Backend **skriver** YAML frontmatter vid skapandet av varje note:
+The backend **writes** YAML frontmatter when each note is created:
 
 ```markdown
 ---
@@ -290,33 +290,33 @@ created: 2025-04-03
 ---
 Docker compose – persistent volumes
 
-Innehåll här...
+Content here...
 ```
 
-- `#taggar` i texten är **alltid källan till sanning** för tags
-- Vid varje PATCH extraheras `#taggar` från texten och frontmatter skrivs om – oavsett vad frontmatter innehöll tidigare
-- `created` sätts från datumprefixet i filnamnet om det finns, annars dagens datum – skrivs aldrig om
-- Backend **läser** frontmatter om det finns men **kräver** det inte – filer utan frontmatter fungerar fullt ut
-- `content` i API-responsen inkluderar **inte** frontmatter-blocket – bara den rena texten
-- Tidlösa notes (`ideas.md`) utan datumprefix får `created: null` i frontmatter
+- `#tags` in the text are **always the source of truth** for tags
+- On every PATCH, `#tags` are extracted from the text and the frontmatter is rewritten – regardless of what the frontmatter contained before
+- `created` is set from the date prefix in the filename if there is one, otherwise today's date – it is never rewritten
+- The backend **reads** frontmatter if present but does not **require** it – files without frontmatter work fully
+- `content` in the API response does **not** include the frontmatter block – only the plain text
+- Timeless notes (`ideas.md`) without a date prefix get `created: null` in the frontmatter
 
-**Fördel för Claude Code:** strukturerad metadata är lättare att parsa än att grep:a `#taggar` i fritext. Tags och datum finns tillgängliga utan att tolka innehållet.
+**Benefit for Claude Code:** structured metadata is easier to parse than grepping for `#tags` in free text. Tags and dates are available without interpreting the content.
 
 ---
 
 ## Frontend (`static/index.html`)
 
-Single-file app. All HTML, CSS och JavaScript i en fil, organiserad i tydliga sektioner med kommentarer: `// === SECTION: AUTH ===`, `// === SECTION: API ===` etc.
+Single-file app. All HTML, CSS and JavaScript in one file, organised in clear sections with comments: `// === SECTION: AUTH ===`, `// === SECTION: API ===` etc.
 
-### Typografi
+### Typography
 
 - **Font:** `JetBrains Mono` via Google Fonts
 - Fallback: `Consolas, 'Courier New', monospace`
-- Fontstorlek: 14px bas, 13px i listan
+- Font size: 14px base, 13px in the list
 
-### Färgpalett
+### Colour palette
 
-| Token | Mörkt tema | Ljust tema |
+| Token | Dark theme | Light theme |
 |-------|-----------|------------|
 | `--bg-primary` | `#0d0d0d` | `#f5f5f5` |
 | `--bg-sidebar` | `#141414` | `#ebebeb` |
@@ -330,219 +330,219 @@ Single-file app. All HTML, CSS och JavaScript i en fil, organiserad i tydliga se
 | `--error-bg` | `#3b0a0a` | `#fee2e2` |
 | `--error-text` | `#f87171` | `#b91c1c` |
 
-Tema följer `prefers-color-scheme`. Ingen manuell toggle i v1.
+The theme follows `prefers-color-scheme`. No manual toggle in v1.
 
-### Desktop-layout
+### Desktop layout
 
 ```
 ┌─────────────────────────────────────────────────┐
-│ [☰]  🔍 Sök...                        [+ Ny]   │  ← topbar
+│ [☰]  🔍 Search...                     [+ New]  │  ← top bar
 ├───────────────────┬─────────────────────────────┤
-│                   │ 📄 2025-04-03-docker.md  ✎  │  ← filnamnsrad (alltid klickbart)
+│                   │ 📄 2025-04-03-docker.md  ✎  │  ← filename bar (always clickable)
 │   SIDEBAR         ├─────────────────────────────┤
-│   (collapsible)   │ ⚠ Kunde inte spara...       │  ← röd felbar (dold)
+│   (collapsible)   │ ⚠ Could not save...         │  ← red error bar (hidden)
 │                   ├─────────────────────────────┤
 │  ┌─────────────┐  │                             │
 │  │ Preview...  │  │   textarea                  │
 │  │ #chip #chip │  │   (JetBrains Mono)          │
-│  │ idag        │  │                        ✓    │
+│  │ today       │  │                        ✓    │
 │  └─────────────┘  │                             │
 │  ┌─────────────┐  │                             │
 │  │ Preview...  │  │                             │
 │  │ #chip       │  │                             │
-│  │ igår        │  │                             │
+│  │ yesterday   │  │                             │
 │  └─────────────┘  │                             │
 └───────────────────┴─────────────────────────────┘
 ```
 
-- Sidebar collapsible via `[☰]` – state sparas i `localStorage`
-- När sidebar är gömd: editor expanderar till full bredd
-- Aktiv note: `3px` vänsterbård i `--accent` + `--bg-card-active`
-- Sidebar-bredd: `300px`, fast
+- Sidebar collapsible via `[☰]` – state saved in `localStorage`
+- When the sidebar is hidden: the editor expands to full width
+- Active note: `3px` left border in `--accent` + `--bg-card-active`
+- Sidebar width: `300px`, fixed
 
-### Filnamnsrad
+### Filename bar
 
-Visas alltid överst i editorn, ovanför felbaren.
+Always shown at the top of the editor, above the error bar.
 
 ```
 📄 2025-04-03-docker-tips.md  ✎
 ```
 
-- Filnamnet är **alltid klickbart** – klick aktiverar inline-redigering
-- `✎`-ikonen har generös klickyta (`padding: 8px 12px`) för att fungera på mobil
-- Klick på filnamn eller `✎` → `<input>` med nuvarande filnamn ifyllt, markerat
-- Enter bekräftar → `POST /api/notes/{id}/rename`
-- Escape avbryter utan ändring
-- `.md` läggs till automatiskt om det saknas
-- Tomt fält → avbryt, behåll nuvarande namn
-- Vid kollision: felmeddelande visas inline under inputfältet i `--error-text`
-- Under rename-request: input disabled, liten spinner
-- Vid lyckat rename: sidebar uppdateras med nytt filnamn
+- The filename is **always clickable** – a click activates inline editing
+- The `✎` icon has a generous click area (`padding: 8px 12px`) to work on mobile
+- Click on the filename or `✎` → `<input>` with the current filename filled in, selected
+- Enter confirms → `POST /api/notes/{id}/rename`
+- Escape cancels without changes
+- `.md` is added automatically if missing
+- Empty field → cancel, keep the current name
+- On a collision: an error message is shown inline under the input in `--error-text`
+- During the rename request: input disabled, small spinner
+- On a successful rename: the sidebar updates with the new filename
 
-### Röd felbar
+### Red error bar
 
-Direkt under filnamnsraden:
+Directly under the filename bar:
 
 ```
-⚠ Kunde inte spara – kontrollera anslutningen
+⚠ Could not save – check the connection
 ```
 
-- `display: none` som default
-- Visas omedelbart vid misslyckat save (nätverksfel eller icke-2xx svar)
-- Försvinner vid nästa lyckade save
-- Auto-retry: försöker igen efter 5s, max 3 försök totalt
-- Efter 3 misslyckade försök: felbar stannar kvar tills sidan laddas om
-- Felräknaren nollställs vid lyckat save
+- `display: none` by default
+- Shown immediately on a failed save (network error or a non-2xx response)
+- Disappears on the next successful save
+- Auto-retry: tries again after 5s, at most 3 attempts in total
+- After 3 failed attempts: the error bar stays until the page is reloaded
+- The error counter is reset on a successful save
 
-### Sidebar – notekortet
+### Sidebar – the note card
 
 ```
 ┌──────────────────────────────┐
-│ Första raden i texten...     │  ← trunkeras ~55 tecken
-│ #docker #snippets            │  ← färgade chips
-│ idag                         │  ← relativt datum
+│ First line of the text...    │  ← truncated at ~55 characters
+│ #docker #snippets            │  ← coloured chips
+│ today                        │  ← relative date
 └──────────────────────────────┘
 ```
 
-- Chips: `--accent-dim` bakgrund, `--accent` text, `border-radius: 9999px`, padding `2px 8px`
+- Chips: `--accent-dim` background, `--accent` text, `border-radius: 9999px`, padding `2px 8px`
 - Hover: `--bg-card`
 
-### Ny note
+### New note
 
-- Knapp `[+ Ny]` i topbaren + `Ctrl+N`
-- Skapar tomt note-objekt lokalt (POST sker inte förrän vid första autospar)
-- Fokuserar editorn direkt
-- Om användaren lämnar noten (blur) utan att ha skrivit något → gör ingenting, skapa aldrig filen
+- Button `[+ New]` in the top bar + `Ctrl+N`
+- Creates an empty note object locally (the POST does not happen until the first autosave)
+- Focuses the editor immediately
+- If the user leaves the note (blur) without having typed anything → do nothing, never create the file
 
-### Editorn
+### The editor
 
-- `<textarea>` utan toolbar, `flex: 1`, `resize: none`
-- Tab → 2 mellanslag
-- Ingen markdown-rendering
-- Sparat-indikator nere till höger: `···` (pulserar) → `✓` (tonar ut 2s) → dolt
+- `<textarea>` without a toolbar, `flex: 1`, `resize: none`
+- Tab → 2 spaces
+- No Markdown rendering
+- Saved indicator at the bottom right: `···` (pulsing) → `✓` (fades out over 2s) → hidden
 
-### Sökning
+### Search
 
-- Alltid synligt i topbaren
-- Live-filter med debounce 300ms
-- Söker i innehåll + taggar + filnamn
-- `Ctrl+F` fokuserar, `Escape` rensar
+- Always visible in the top bar
+- Live filter with a 300ms debounce
+- Searches content + tags + filename
+- `Ctrl+F` focuses, `Escape` clears
 
-### Tangentbordsgenvägar
+### Keyboard shortcuts
 
-| Genväg | Funktion |
-|--------|----------|
-| `Ctrl+N` | Ny note |
-| `Ctrl+F` | Fokus på sökfält |
-| `Ctrl+B` | Toggla sidebar |
-| `Ctrl+Delete` | Radera aktiv note (bekräftelsedialog) |
-| `Escape` | Rensa sökning |
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+N` | New note |
+| `Ctrl+F` | Focus the search field |
+| `Ctrl+B` | Toggle sidebar |
+| `Ctrl+Delete` | Delete the active note (confirmation dialog) |
+| `Escape` | Clear search |
 
 ---
 
-### Mobilvy (≤768px)
+### Mobile view (≤768px)
 
-Två-vy-modell. Standardvy vid öppning: **editor** (senast öppnad note, sparas i `localStorage` som `lastNoteId`).
+Two-view model. Default view on opening: **editor** (the last opened note, saved in `localStorage` as `lastNoteId`).
 
-**Fallback:** Om `lastNoteId` inte längre existerar (note raderad, omdöpt, eller första gången) → visa en tom ny note redo att skriva i. Försök aldrig visa ett 404-fel för användaren vid start.
+**Fallback:** If `lastNoteId` no longer exists (note deleted, renamed, or first time) → show an empty new note ready to type in. Never show a 404 error to the user at startup.
 
-**Editorvy:**
+**Editor view:**
 ```
 ┌─────────────────────────┐
 │ [←]  HexNotes           │
 ├─────────────────────────┤
-│ 📄 ideas.md           ✎ │  ← alltid klickbart
+│ 📄 ideas.md           ✎ │  ← always clickable
 ├─────────────────────────┤
-│ ⚠ Kunde inte spara...  │  ← dold tills fel
+│ ⚠ Could not save...    │  ← hidden until an error
 ├─────────────────────────┤
 │   textarea         ✓    │
 │                    [+]  │  ← FAB
 └─────────────────────────┘
 ```
 
-**Listvy (`[←]` i topbaren):**
+**List view (`[←]` in the top bar):**
 ```
 ┌─────────────────────────┐
-│ 🔍 Sök...               │
+│ 🔍 Search...            │
 ├─────────────────────────┤
 │ ┌─────────────────────┐ │
 │ │ Preview...          │ │
-│ │ #chip #chip   idag  │ │
+│ │ #chip #chip  today  │ │
 │ └─────────────────────┘ │
 │                    [+]  │  ← FAB
 └─────────────────────────┘
 ```
 
-- **FAB:** `position: fixed`, `bottom: 24px`, `right: 24px`, `56px` cirkulär, `--accent`
-- FAB skapar ny note och öppnar editorn
-- Tryck på note i lista → editorvy
+- **FAB:** `position: fixed`, `bottom: 24px`, `right: 24px`, `56px` circular, `--accent`
+- The FAB creates a new note and opens the editor
+- Tapping a note in the list → editor view
 
 ---
 
-## Autospar – detaljerat flöde
+## Autosave – detailed flow
 
 ```
-Användaren skriver
+The user types
         ↓
-pendingContent = content          ← alltid uppdateras, oavsett nätverksstatus
+pendingContent = content          ← always updated, regardless of network status
 clearTimeout(saveTimer)
         ↓
 isOnline?
-  Nej → visa offline-indikator, vänta på online-event (inget timer)
-  Ja  → saveTimer = setTimeout(save, 1000)
-        ↓  (1 sekund utan knapptryckning)
+  No  → show the offline indicator, wait for the online event (no timer)
+  Yes → saveTimer = setTimeout(save, 1000)
+        ↓  (1 second without a keystroke)
 save(pendingContent)
   ├── isSaving === true?
-  │     → avvakta, pendingContent är redan uppdaterat
+  │     → wait, pendingContent is already updated
   ├── isNew === true?
-  │     → POST /api/notes (med ev. manuellt filnamn)
-  │     → vid lyckat: isNew = false
+  │     → POST /api/notes (with a manual filename, if any)
+  │     → on success: isNew = false
   └── isNew === false?
         → PATCH /api/notes/{id}
 
-OBS: Autospar skickar aldrig tomt content. Tom note → trash hanteras
-     enbart via blur-event (se "Auto-trash" nedan), aldrig via detta flöde.
+NOTE: Autosave never sends empty content. Empty note → trash is handled
+      only via the blur event (see "Auto-trash" below), never via this flow.
 
-  Lyckat:
+  Success:
     isSaving = false
     pendingContent = null
-    Visa ✓, dölj felbar och offline-indikator
-    Nollställ retryCount
+    Show ✓, hide the error bar and the offline indicator
+    Reset retryCount
 
-  Misslyckat (online men fel):
+  Failure (online but an error):
     isSaving = false
-    Visa röd felbar
+    Show the red error bar
     retryCount++
-    retryCount <= 3 → retry efter 5s
-    retryCount >  3 → felbar stannar, inga fler retries
+    retryCount <= 3 → retry after 5s
+    retryCount >  3 → the error bar stays, no more retries
 ```
 
 ---
 
-## Offline-hantering
+## Offline handling
 
-### Tillståndsmaskinen
+### The state machine
 
-Frontend håller tre variabler:
+The frontend keeps three variables:
 
 ```javascript
-let isOnline      = navigator.onLine; // startvärde
-let pendingContent = null;            // senaste osparade innehåll
-let healthInterval = null;            // polling-timer, körs bara offline
+let isOnline      = navigator.onLine; // initial value
+let pendingContent = null;            // latest unsaved content
+let healthInterval = null;            // polling timer, only runs offline
 ```
 
-`isOnline` är **inte** samma sak som `navigator.onLine` rakt av – den uppdateras via en kombination av browser-events och faktiska request-resultat (se nedan).
+`isOnline` is **not** the same as `navigator.onLine` as is – it is updated through a combination of browser events and actual request results (see below).
 
-### Online/offline-events
+### Online/offline events
 
 ```javascript
 window.addEventListener('offline', () => goOffline());
 window.addEventListener('online',  () => checkHealth());
 ```
 
-`online`-eventet litar vi inte på blint – det triggar ett health-check-anrop innan vi deklarerar oss online igen.
+We do not trust the `online` event blindly – it triggers a health check before we declare ourselves online again.
 
-### Health-check + polling
+### Health check + polling
 
 ```javascript
 async function checkHealth() {
@@ -550,7 +550,7 @@ async function checkHealth() {
     const r = await fetch('/health', { signal: AbortSignal.timeout(3000) });
     if (r.ok) goOnline();
   } catch {
-    // fortfarande offline, polling fortsätter
+    // still offline, polling continues
   }
 }
 
@@ -558,7 +558,7 @@ function goOffline() {
   isOnline = false;
   showOfflineBar();
   clearTimeout(saveTimer);
-  // Starta polling var 30s – BARA när offline
+  // Poll every 30s – ONLY while offline
   if (!healthInterval) {
     healthInterval = setInterval(checkHealth, 30000);
   }
@@ -569,58 +569,58 @@ function goOnline() {
   clearInterval(healthInterval);
   healthInterval = null;
   hideOfflineBar();
-  // Spara direkt om det finns väntande innehåll
+  // Save right away if there is pending content
   if (pendingContent !== null) save(pendingContent);
 }
 ```
 
-Polling körs **enbart offline** – noll extra requests när allt fungerar normalt.
+Polling runs **only offline** – zero extra requests when everything works normally.
 
-### Request-fel som offline-detektor
+### Request errors as an offline detector
 
-Om ett save-anrop misslyckas med nätverksfel (inte 4xx/5xx utan connection error):
+If a save call fails with a network error (not 4xx/5xx but a connection error):
 
 ```javascript
 } catch (err) {
   if (!navigator.onLine) {
-    goOffline(); // nätverket försvann under request
+    goOffline(); // the network went away during the request
   } else {
-    showErrorBar(); // online men backend-fel
+    showErrorBar(); // online but a backend error
     scheduleRetry();
   }
 }
 ```
 
-Det fångar scenariot där nätverket försvinner mitt i ett pågående request.
+This catches the case where the network disappears in the middle of an ongoing request.
 
-### Visuell feedback-hierarki
+### Visual feedback hierarchy
 
-Tre distinkta tillstånd – aldrig överlappande:
+Distinct states – never overlapping:
 
-| Tillstånd | UI-signal | Färg | Placering |
-|-----------|-----------|------|-----------|
-| Sparar | `···` pulserar | `--accent` | Hörnet i editorn |
-| Sparat | `✓` tonar ut 2s | `--accent` | Hörnet i editorn |
-| **Offline** | statusrad | gul `#854d0e` / `#fef08a` | Nedre kanten av appen |
-| Sparfel (online) | felbar | röd `--error-*` | Under filnamnsraden |
+| State | UI signal | Colour | Placement |
+|-------|-----------|--------|-----------|
+| Saving | `···` pulsing | `--accent` | Corner of the editor |
+| Saved | `✓` fades out over 2s | `--accent` | Corner of the editor |
+| **Offline** | status bar | yellow `#854d0e` / `#fef08a` | Bottom edge of the app |
+| Save error (online) | error bar | red `--error-*` | Under the filename bar |
 
-**Offline är inte ett fel** – gul färg signalerar väntetillstånd, inte katastrof. Röd felbar reserveras för när nätverket är uppe men backend ändå svarar fel.
+**Offline is not an error** – yellow signals a waiting state, not a disaster. The red error bar is reserved for when the network is up but the backend still answers with an error.
 
-### Offline-indikatorn (desktop + mobil)
+### The offline indicator (desktop + mobile)
 
 ```
 ┌─────────────────────────────────────────────────┐
-│ ● Offline – ändringar sparas när du är online   │
+│ ● Offline – changes are saved when you're online│
 └─────────────────────────────────────────────────┘
 ```
 
 - `position: fixed`, `bottom: 0`, `left: 0`, `right: 0`
-- Höjd: `32px`, centrerad text
-- Bakgrund: `#422006` (mörkt tema) / `#fef9c3` (ljust tema)
+- Height: `32px`, centred text
+- Background: `#422006` (dark theme) / `#fef9c3` (light theme)
 - Text: `#fef08a` / `#854d0e`
-- Dold som default (`display: none`)
-- På mobil: hamnar ovanför FAB:en (FAB får `bottom: 58px` när offline-bar visas, annars `bottom: 24px`)
-- `z-index` hierarki: offline-bar `z-index: 200`, FAB `z-index: 100` – offline-baren täcker aldrig FAB men syns alltid
+- Hidden by default (`display: none`)
+- On mobile: sits above the FAB (the FAB gets `bottom: 58px` while the offline bar is shown, otherwise `bottom: 24px`)
+- `z-index` hierarchy: offline bar `z-index: 200`, FAB `z-index: 100` – the offline bar never covers the FAB but is always visible
 
 ---
 
@@ -646,7 +646,7 @@ Tre distinkta tillstånd – aldrig överlappande:
 
 ### `static/sw.js`
 
-Service Worker cachar statiska assets så att appen kan **starta offline**. Utan detta kan appen inte öppnas utan nätverksanslutning, vilket gör all JS-offline-logik meningslös.
+The Service Worker caches static assets so that the app can **start offline**. Without it the app cannot be opened without a network connection, which makes all the JS offline logic pointless.
 
 ```javascript
 const CACHE = 'hexnotes-v1';
@@ -665,23 +665,23 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
-  // API-anrop går alltid till nätverket
+  // API calls always go to the network
   if (url.pathname.startsWith('/api') || url.pathname.startsWith('/admin')) {
     e.respondWith(fetch(e.request));
     return;
   }
-  // Statiska assets: cache-first
+  // Static assets: cache-first
   e.respondWith(
     caches.match(e.request).then(cached => cached || fetch(e.request))
   );
 });
 ```
 
-Cache invalideras automatiskt vid ny deploy via `CACHE = 'hexnotes-v2'` etc. JetBrains Mono-fonten laddas via Google Fonts och cachas inte – appen faller tillbaka på `Consolas` om offline.
+The cache is invalidated automatically on a new deploy via `CACHE = 'hexnotes-v2'` etc. The JetBrains Mono font is loaded via Google Fonts and is not cached – the app falls back to `Consolas` when offline.
 
-### Ikoner
+### Icons
 
-Genereras av `scripts/generate_icons.py` som ett `RUN`-steg i Dockerfile. Skriptet körs alltså **inuti Docker-bygget**, inte lokalt.
+Generated by `scripts/generate_icons.py` as a `RUN` step in the Dockerfile. The script therefore runs **inside the Docker build**, not locally.
 
 ```python
 # scripts/generate_icons.py
@@ -691,7 +691,7 @@ import os
 def make_icon(size):
     img = Image.new("RGB", (size, size), "#a855f7")
     draw = ImageDraw.Draw(img)
-    # Rita vit "M" centrerad
+    # Draw a white "M", centred
     font_size = size // 2
     try:
         font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
@@ -709,13 +709,13 @@ make_icon(512).save("static/icon-512.png")
 print("Icons generated.")
 ```
 
-Pillow ingår i `requirements.txt`. Ikonerna hamnar i `static/` och kopieras med i imagen.
+Pillow is included in `requirements.txt`. The icons end up in `static/` and are copied into the image.
 
 ### Installation
 
-- **Windows Chrome/Edge:** `⊕`-ikon i adressfältet → installera → dockningsbar i taskbaren
-- **Android:** Dela → Lägg till på hemskärmen
-- **iOS:** Safari → Dela → Lägg till på hemskärmen
+- **Windows Chrome/Edge:** `⊕` icon in the address bar → install → dockable in the taskbar
+- **Android:** Share → Add to Home screen
+- **iOS:** Safari → Share → Add to Home Screen
 
 ---
 
@@ -723,29 +723,29 @@ Pillow ingår i `requirements.txt`. Ikonerna hamnar i `static/` och kopieras med
 
 ### `Dockerfile`
 
-Ikoner genereras som ett `RUN`-steg inuti Docker-bygget via ett separat skript `scripts/generate_icons.py`. På så sätt är bygget helt self-contained – inga lokala beroenden krävs.
+Icons are generated as a `RUN` step inside the Docker build via a separate script, `scripts/generate_icons.py`. This keeps the build fully self-contained – no local dependencies are needed.
 
 ```dockerfile
 FROM python:3.12-slim
 WORKDIR /app
 
-# Installera beroenden
+# Install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Kopiera källkod
+# Copy source code
 COPY backend/ ./backend/
 COPY static/ ./static/
 COPY scripts/ ./scripts/
 
-# Generera PWA-ikoner under bygget
+# Generate PWA icons during the build
 RUN python scripts/generate_icons.py
 
 EXPOSE 8000
 CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
-`.trash/`-mappen skapas **inte** via `mkdir` i Dockerfile – den monterade volymen åsidosätter `/app/notes/` och gör mkdir meningslöst. Backend skapar istället `.trash/` vid startup om den saknas (se Backend – startup-logik).
+The `.trash/` folder is **not** created via `mkdir` in the Dockerfile – the mounted volume overrides `/app/notes/` and makes the mkdir pointless. Instead the backend creates `.trash/` at startup if it is missing (see Backend – startup logic).
 
 ### `docker-compose.yml`
 
@@ -773,159 +773,159 @@ services:
 ### `.env.example`
 
 ```
-ADMIN_SECRET=byt-ut-detta-till-ett-starkt-lösenord
+ADMIN_SECRET=replace-this-with-a-strong-password
 ```
 
-### `tokens.json` (initial tom fil)
+### `tokens.json` (initial empty file)
 
 ```json
 { "tokens": [] }
 ```
 
-Första token skapas via `POST /admin/tokens` direkt efter deploy.
+The first token is created via `POST /admin/tokens` right after deploy.
 
-Backend skapar `tokens.json` automatiskt om filen saknas vid start (`{ "tokens": [] }`). Detta förhindrar att Docker skapar en katalog med det namnet om volymen är tom.
-
----
-
-## Säkerhet
-
-- Alla note-endpoints kräver giltig Bearer token från `tokens.json`
-- Admin-endpoints kräver `ADMIN_SECRET` (separat, aldrig samma som en vanlig token)
-- Token lagras i frontend `localStorage` – acceptabel risk för single-user self-hosted
-- Nginx hanterar TLS via Nginx Proxy Manager
-- `notes/`-mappen exponeras aldrig direkt via webben
-- `.trash/` listas aldrig via API
+The backend creates `tokens.json` automatically if the file is missing at startup (`{ "tokens": [] }`). This prevents Docker from creating a directory with that name if the volume is empty.
 
 ---
 
-## Auth – installationsflöde per enhet
+## Security
 
-Appen har ingen login-sida med användarnamn/lösenord. Auth är en Bearer token som klistras in en gång per enhet och sparas i `localStorage`.
+- Every note endpoint requires a valid Bearer token from `tokens.json`
+- Admin endpoints require `ADMIN_SECRET` (separate, never the same as a regular token)
+- The token is stored in the frontend's `localStorage` – an acceptable risk for single-user self-hosting
+- Nginx handles TLS via Nginx Proxy Manager
+- The `notes/` folder is never exposed directly on the web
+- `.trash/` is never listed via the API
 
-### Första gången appen öppnas (token saknas)
+---
 
-Frontend visar en token-prompt istället för appen:
+## Auth – setup flow per device
+
+The app has no login page with a username/password. Auth is a Bearer token that is pasted once per device and saved in `localStorage`.
+
+### The first time the app is opened (no token)
+
+The frontend shows a token prompt instead of the app:
 
 ```
 ┌─────────────────────────────┐
 │        HexNotes             │
 │                             │
-│  Ange din API-token         │
+│  Enter your API token       │
 │  ┌───────────────────────┐  │
 │  │ tok_...               │  │
 │  └───────────────────────┘  │
-│         [Anslut]            │
+│         [Connect]           │
 │                             │
 └─────────────────────────────┘
 ```
 
-Token sparas i `localStorage` → appen laddas direkt. Vid nästa besök hoppas prompten över.
+The token is saved in `localStorage` → the app loads straight away. On the next visit the prompt is skipped.
 
-### Steg-för-steg per enhet
+### Step by step per device
 
-**Steg 1 – Skapa en token (en gång per enhet)**
+**Step 1 – Create a token (once per device)**
 
 Via Claude Code:
 ```
-"Skapa en token som heter iphone"
+"Create a token called iphone"
 → tok_xyz999
 ```
 
 Via curl:
 ```bash
-curl -X POST https://notes.dindomän.se/admin/tokens \
+curl -X POST https://notes.yourdomain.com/admin/tokens \
   -H "Authorization: Bearer <admin-secret>" \
   -H "Content-Type: application/json" \
   -d '{"name": "iphone"}'
 ```
 
-**Steg 2 – Öppna `https://notes.dindomän.se` i webbläsaren**
+**Step 2 – Open `https://notes.yourdomain.com` in the browser**
 
-Token-prompten visas. Klistra in token → Anslut.
+The token prompt is shown. Paste the token → Connect.
 
-**Steg 3 – Installera som PWA (valfritt)**
+**Step 3 – Install as a PWA (optional)**
 
-- **Windows Chrome/Edge:** `⊕`-ikon i adressfältet → "Installera HexNotes" → eget fönster, dockningsbar i taskbaren. PWA delar `localStorage` med webbläsaren – token följer med automatiskt.
-- **Android Chrome:** Meny `⋮` → "Lägg till på hemskärmen"
-- **iOS Safari:** Dela → "Lägg till på hemskärmen"
+- **Windows Chrome/Edge:** `⊕` icon in the address bar → "Install HexNotes" → its own window, dockable in the taskbar. The PWA shares `localStorage` with the browser – the token comes along automatically.
+- **Android Chrome:** Menu `⋮` → "Add to Home screen"
+- **iOS Safari:** Share → "Add to Home Screen"
 
-**Logga ut / byta token:** Rensa `localStorage` i webbläsarens devtools, eller lägg till en "Logga ut"-knapp i settings (out of scope v1).
-
----
-
-## Icke-krav (ut ur scope för v1)
-
-- Markdown-rendering i editorn
-- Bilagor och bilder
-- Delning av notes
-- Versionshistorik
-- Notifikationer
+**Log out / switch token:** Clear `localStorage` in the browser's devtools, or add a "Log out" button in settings (out of scope for v1).
 
 ---
 
-## Framtida utbyggnad
+## Non-requirements (out of scope for v1)
 
-- **Git-commit per save** – automatisk versionshistorik
-- **Tömning av trash** – via admin-endpoint eller schemalagt
-- **Webhook** – trigga automation på `#tagg`
-- **MCP-server** – om REST API inte räcker för Claude Code
-- **Offline-cache** – utöka Service Worker med notes-data för fullständig offline-läsning
+- Markdown rendering in the editor
+- Attachments and images
+- Sharing notes
+- Version history
+- Notifications
 
 ---
 
-## Snabbstart
+## Future extensions
+
+- **Git commit per save** – automatic version history
+- **Emptying the trash** – via an admin endpoint or on a schedule
+- **Webhook** – trigger automation on a `#tag`
+- **MCP server** – if the REST API is not enough for Claude Code
+- **Offline cache** – extend the Service Worker with note data for full offline reading
+
+---
+
+## Quick start
 
 ```bash
-# 1. Klona och konfigurera
+# 1. Clone and configure
 cp .env.example .env
-# Redigera .env och sätt ADMIN_SECRET
+# Edit .env and set ADMIN_SECRET
 
-# 2. Skapa tom tokens-fil om den inte finns
+# 2. Create an empty tokens file if it does not exist
 echo '{"tokens": []}' > tokens.json
 
-# 3. Bygg och starta
+# 3. Build and start
 docker compose up -d
 
-# 4. Skapa första token
+# 4. Create the first token
 curl -X POST http://localhost:8000/admin/tokens \
   -H "Authorization: Bearer <admin-secret>" \
   -H "Content-Type: application/json" \
   -d '{"name": "desktop"}'
 
-# 5. Öppna appen
-# http://localhost:8000  (eller via Nginx Proxy Manager)
+# 5. Open the app
+# http://localhost:8000  (or via Nginx Proxy Manager)
 ```
 
-Nginx Proxy Manager: lägg till en Proxy Host mot `hexnotes:8000` med SSL.
+Nginx Proxy Manager: add a Proxy Host pointing at `hexnotes:8000` with SSL.
 
 ---
 
-## Byggordning för agenten
+## Build order for the agent
 
-1. Skapa projektstruktur, `docker-compose.yml`, `.env.example`, tom `tokens.json`
-2. Bygg `backend/main.py`:
-   - Token-laddning och validering från `tokens.json`
-   - Admin-endpoints (skapa, revokera, lista tokens)
-   - In-memory index med startup-byggande och invalidering vid write/rename/delete
-   - Frontmatter: skriv vid POST, läs + uppdatera vid PATCH om tags ändrats
-   - Note-endpoints inkl. `POST /api/notes/{id}/rename`
-   - Tom content → trash-logik i PATCH (blur-baserat, ej autospar)
-3. Skriv `scripts/generate_icons.py` – genererar `icon-192.png` och `icon-512.png` via Pillow till `static/`
-4. Bygg `static/manifest.json` och `static/sw.js`
-5. Bygg `static/index.html`:
-   - CSS med färgpalett och `prefers-color-scheme`
-   - Token-prompt vid saknad `localStorage`-token
-   - Desktop-layout med collapsible sidebar
-   - Filnamnsrad alltid klickbar med inline rename + kollisionsfel
-   - Röd felbar med auto-retry (max 3 försök)
-   - Autospar med `isSaving`-flagga och `pendingContent`-variabel (ej kö – senaste värde gäller)
-   - Mobilvy med FAB
-   - Tydliga JS-sektionskommentarer
-6. Bygg `Dockerfile` och `requirements.txt`
-7. Verifiera: offline-bar visas/döljs korrekt, pendingContent sparas vid reconnect
-8. Verifiera: rename fungerar, kollision ger felmeddelande inline
-9. Verifiera: felbar visas vid nätverksfel (online men backend-fel), försvinner vid lyckat save
-10. Verifiera: race condition (snabb typing, två requests)
-11. Verifiera: 404 vid start → fallback till tom ny note
-12. Verifiera: PWA-installation i Chrome/Edge
+1. Create the project structure, `docker-compose.yml`, `.env.example`, an empty `tokens.json`
+2. Build `backend/main.py`:
+   - Token loading and validation from `tokens.json`
+   - Admin endpoints (create, revoke, list tokens)
+   - In-memory index built at startup and invalidated on write/rename/delete
+   - Frontmatter: write on POST, read + update on PATCH if the tags changed
+   - Note endpoints incl. `POST /api/notes/{id}/rename`
+   - Empty content → trash logic in PATCH (blur-based, not autosave)
+3. Write `scripts/generate_icons.py` – generates `icon-192.png` and `icon-512.png` with Pillow into `static/`
+4. Build `static/manifest.json` and `static/sw.js`
+5. Build `static/index.html`:
+   - CSS with the colour palette and `prefers-color-scheme`
+   - Token prompt when there is no `localStorage` token
+   - Desktop layout with a collapsible sidebar
+   - Filename bar always clickable, with inline rename + collision error
+   - Red error bar with auto-retry (at most 3 attempts)
+   - Autosave with an `isSaving` flag and a `pendingContent` variable (no queue – the latest value wins)
+   - Mobile view with a FAB
+   - Clear JS section comments
+6. Build the `Dockerfile` and `requirements.txt`
+7. Verify: the offline bar shows/hides correctly, pendingContent is saved on reconnect
+8. Verify: rename works, a collision gives an inline error message
+9. Verify: the error bar shows on a network error (online but a backend error) and disappears on a successful save
+10. Verify: race condition (fast typing, two requests)
+11. Verify: 404 at startup → fallback to an empty new note
+12. Verify: PWA installation in Chrome/Edge

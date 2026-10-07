@@ -91,7 +91,7 @@ def test_patch_unchanged_content_creates_no_version(client, auth):
 def test_trash_via_empty_patch_creates_snapshot(client, auth, tmp_notes):
     created = _create(client, auth, "Snart borta")
     client.patch(f"/api/notes/{created['id']}", json={"content": ""}, headers=auth)
-    # Historiken följer med noten till papperskorgen
+    # The history follows the note into the trash
     snapshots = list((tmp_notes / ".trash" / ".history").glob(f"*__{created['id']}/*.md"))
     assert len(snapshots) == 1
     assert "Snart borta" in snapshots[0].read_text()
@@ -108,7 +108,7 @@ def test_rename_moves_history(client, auth, tmp_notes):
 
 
 def test_restore_via_patch_adds_new_version(client, auth):
-    """Återställning görs som en vanlig PATCH med gammalt innehåll."""
+    """Restoring is done as a plain PATCH with the old content."""
     created = _create(client, auth, "Version ett")
     client.patch(f"/api/notes/{created['id']}", json={"content": "Version två"}, headers=auth)
     version = client.get(f"/api/notes/{created['id']}/history", headers=auth).json()[0]["version"]
@@ -146,7 +146,7 @@ def test_pruning_keeps_the_newest(client, auth, tmp_notes):
 
 
 def test_pruning_leaves_foreign_files_alone(client, auth, tmp_notes):
-    """Bara filer som matchar versionsmönstret får röras."""
+    """Only files matching the version pattern may be touched."""
     from backend.main import HISTORY_MAX_VERSIONS, _history_dir
     r = client.post("/api/notes", json={"content": "v0", "filename": "frammande.md"}, headers=auth)
     note_id = r.json()["id"]

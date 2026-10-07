@@ -11,13 +11,13 @@ def _function(name):
 
 
 def test_failed_note_load_is_shown_not_swallowed():
-    """Regression: proxyn nere gav en tom lista utan fel, som såg ut som att
-    alla noter var borta. Se #13."""
+    """Regression: the proxy being down gave an empty list with no error, which
+    looked as if every note was gone. See #13."""
     assert 'id="list-error"' in SRC
     for name in ("loadNotes", "pollNotes"):
         body = _function(name)
-        assert "showListError(err)" in body, f"{name} sväljer fortfarande felet"
-        assert "clearListError()" in body, f"{name} tar inte bort felet vid lyckad hämtning"
+        assert "showListError(err)" in body, f"{name} still swallows the error"
+        assert "clearListError()" in body, f"{name} does not clear the error on a successful fetch"
 
 
 def test_list_error_distinguishes_network_from_http_status():
@@ -33,14 +33,15 @@ def test_coming_back_online_reloads_the_list():
 
 
 def test_groups_sort_newest_created_first():
-    """Inom varje grupp ska den senast skapade noten ligga överst. Se #14."""
+    """Within each group the most recently created note comes first. See #14."""
     assert "b.created_at" in _function("sortNewestCreated")
     assert "sortNewestCreated(groupNotes)" in _function("renderNoteGroup")
 
 
 def test_all_notes_group_holds_every_unpinned_note():
-    """Inbox visade bara otaggade noter, så en taggad dagboksnot syntes inte
-    överst efter refresh (2026-10-07). All notes tar med alla ofästa."""
+    """Inbox only showed untagged notes, so a tagged journal note did not show
+    at the top after a refresh (2026-10-07). All notes includes every unpinned
+    note."""
     body = _function("renderNotesList")
     assert "'<span>All notes</span>', unpinned," in body
     assert "n.tags.length === 0" not in body
@@ -59,8 +60,8 @@ def test_all_notes_sorted_by_last_edit_under_date_headings():
 
 
 def test_card_date_counts_calendar_days():
-    """Kortet sa "today" om en not ändrad 18:00 igår, under rubriken
-    Yesterday. Räkna kalenderdagar som dateBucket gör."""
+    """The card said "today" for a note edited at 18:00 yesterday, under the
+    Yesterday heading. Count calendar days, as dateBucket does."""
     body = _function("relativeDate")
     assert "startOfDay(now) - startOfDay(d)" in body
     assert "now - d" not in body

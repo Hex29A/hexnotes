@@ -263,15 +263,15 @@ def test_rename_sanitizes_path_traversal(client, auth, tmp_notes):
 # === Pagination bounds ===
 
 def test_limit_above_the_cap_is_rejected(client, auth):
-    """Varje post bär notens fulla content — ett obundet limit lämnar ut hela
-    samlingen i ett anrop."""
+    """Every item carries the note's full content — an unbounded limit hands
+    out the whole collection in one call."""
     from backend.main import MAX_PAGE_SIZE
     assert client.get(f"/api/notes?limit={MAX_PAGE_SIZE + 1}", headers=auth).status_code == 422
     assert client.get(f"/api/notes?limit={MAX_PAGE_SIZE}", headers=auth).status_code == 200
 
 
 def test_negative_limit_and_offset_are_rejected(client, auth):
-    """limit=-1 gav förut results[0:-1] — ett tyst fel svar i stället för 422."""
+    """limit=-1 used to give results[0:-1] — a silently wrong answer instead of 422."""
     assert client.get("/api/notes?limit=-1", headers=auth).status_code == 422
     assert client.get("/api/notes?offset=-5", headers=auth).status_code == 422
     assert client.get("/api/notes?limit=0", headers=auth).status_code == 422
@@ -287,7 +287,7 @@ def test_limit_still_pages(client, auth):
 
 
 def test_emptying_a_note_returns_204_without_a_body(client, auth):
-    """204 betyder ingen kropp alls; JSONResponse skickade en literal "null"."""
+    """204 means no body at all; JSONResponse sent a literal "null"."""
     r = client.post("/api/notes", json={"content": "raderas"}, headers=auth)
     note_id = r.json()["id"]
     r2 = client.patch(f"/api/notes/{note_id}", json={"content": "   "}, headers=auth)
@@ -298,8 +298,8 @@ def test_emptying_a_note_returns_204_without_a_body(client, auth):
 # === The contract fetchAllNotes() in the frontend relies on ===
 
 def test_paging_returns_every_note_exactly_once(client, auth):
-    """Klienten hämtar sida för sida tills en kort sida kommer. Det kräver att
-    limit/offset täcker hela listan utan hål eller dubbletter."""
+    """The client fetches page by page until a short page arrives. That
+    requires limit/offset to cover the whole list without gaps or duplicates."""
     total = 25
     for i in range(total):
         client.post("/api/notes", json={"content": f"not {i}", "filename": f"sid-{i:03}.md"}, headers=auth)
@@ -315,8 +315,8 @@ def test_paging_returns_every_note_exactly_once(client, auth):
 
     in_one_go = [n["id"] for n in client.get("/api/notes?limit=100", headers=auth).json()]
     assert len(seen) == len(in_one_go)
-    assert len(set(seen)) == len(seen), "samma not kom med två gånger"
-    assert seen == in_one_go, "sidhämtningen gav en annan ordning än ett svep"
+    assert len(set(seen)) == len(seen), "the same note came twice"
+    assert seen == in_one_go, "paging gave a different order than one sweep"
 
 
 def test_paging_with_a_query_is_also_complete(client, auth):

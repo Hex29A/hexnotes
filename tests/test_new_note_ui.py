@@ -24,17 +24,17 @@ def test_long_press_cancel_receives_its_event(client):
 
 
 def test_frontend_pages_the_note_list_instead_of_a_fixed_limit():
-    """Regression: ett hårdkodat limit=200 lät noter utöver det tyst falla
-    bort ur sidofältet. Se #12."""
+    """Regression: a hardcoded limit=200 let notes beyond it silently drop
+    out of the sidebar. See #12."""
     from pathlib import Path
     js = Path(__file__).resolve().parent.parent / "static" / "index.html"
     src = js.read_text(encoding="utf-8")
     import re
     assert "async function fetchAllNotes(" in src
-    # Sidstorleken ska komma från NOTES_PAGE_SIZE. Den enda hårdkodade siffran
-    # som får finnas kvar är tokenvalideringens limit=1, som bara frågar om
-    # token duger och aldrig ska bli en lista.
+    # The page size must come from NOTES_PAGE_SIZE. The only hardcoded number
+    # allowed to remain is the token check's limit=1, which only asks whether
+    # the token works and must never become a list.
     hardcoded = [m.group(0) for m in re.finditer(r"/api/notes\?limit=\d+", src)
                  if m.group(0) != "/api/notes?limit=1"]
-    assert hardcoded == [], f"hårdkodat limit kvar: {hardcoded}"
-    assert src.count("fetchAllNotes(") >= 6, "alla listhämtningar går inte genom fetchAllNotes"
+    assert hardcoded == [], f"hardcoded limit left: {hardcoded}"
+    assert src.count("fetchAllNotes(") >= 6, "not every list fetch goes through fetchAllNotes"

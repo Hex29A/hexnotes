@@ -63,7 +63,7 @@ def test_restore_never_overwrites_live_note(client, auth):
     r = client.post(f"/api/trash/{name}/restore", headers=auth)
     assert r.status_code == 200
     assert r.json()["filename"] == "krock-2.md"
-    # Den levande noten är orörd
+    # The live note is untouched
     assert client.get("/api/notes/krock", headers=auth).json()["content"] == "Ny levande"
 
 
@@ -74,7 +74,7 @@ def test_history_follows_note_to_trash_and_back(client, auth):
     name = _trash_first(client, auth)["name"]
     client.post(f"/api/trash/{name}/restore", headers=auth)
     versions = client.get("/api/notes/medhist/history", headers=auth).json()
-    # Snapshot vid patch + slutlig snapshot vid radering
+    # Snapshot on patch + final snapshot on delete
     assert [v["preview"] for v in versions] == ["Version två", "Version ett"]
 
 
@@ -95,7 +95,7 @@ def test_purge_removes_file_and_history(client, auth, tmp_notes):
     r = client.delete(f"/api/trash/{name}", headers=auth)
     assert r.status_code == 200
     assert r.json()["status"] == "purged"
-    # Inget spår kvar på disk — varken fil eller historik
+    # No trace left on disk — neither file nor history
     leftovers = [
         p for p in tmp_notes.rglob("*")
         if p.is_file() and "hemlis" in p.name
@@ -105,7 +105,7 @@ def test_purge_removes_file_and_history(client, auth, tmp_notes):
 
 
 def test_trash_name_traversal_rejected(client, auth):
-    # %2F-varianten normaliseras redan av routern (405/404), övriga ska ge 404
+    # The %2F variant is already normalised by the router (405/404), the rest must give 404
     for bad in ["..%2F..%2Ftokens.json", "..evil.md", ".hidden.md", "ingen-md-fil"]:
         assert client.get(f"/api/trash/{bad}", headers=auth).status_code in (404, 405)
         assert client.post(f"/api/trash/{bad}/restore", headers=auth).status_code in (404, 405)
@@ -118,7 +118,7 @@ def test_trash_entry_not_found(client, auth):
 
 
 def test_legacy_trash_file_listed_and_restorable(client, auth, tmp_notes):
-    # Filer från tiden före timestampade namn ligger som <namn>.md direkt
+    # Files from before timestamped names sit directly as <name>.md
     (tmp_notes / ".trash" / "gammal-fil.md").write_text("Legacy-innehåll", encoding="utf-8")
     entries = client.get("/api/trash", headers=auth).json()
     assert entries[0]["original_filename"] == "gammal-fil.md"
@@ -153,7 +153,7 @@ def test_empty_trash_purges_everything(client, auth, tmp_notes):
     assert r.status_code == 200
     assert r.json() == {"status": "purged", "count": 2}
     assert client.get("/api/trash", headers=auth).json() == []
-    # Inga filer kvar under .trash, levande noten orörd
+    # No files left under .trash, the live note untouched
     assert [p for p in (tmp_notes / ".trash").rglob("*") if p.is_file()] == []
     assert client.get("/api/notes/kvar", headers=auth).status_code == 200
 

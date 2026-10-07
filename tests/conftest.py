@@ -12,7 +12,7 @@ TEST_ADMIN = "admin_test_secret"
 
 @pytest.fixture
 def tmp_notes(tmp_path, monkeypatch):
-    """Temporär notes-mapp för varje test."""
+    """Temporary notes folder for each test."""
     notes_dir = tmp_path / "notes"
     notes_dir.mkdir()
     (notes_dir / ".trash").mkdir()

@@ -1,132 +1,151 @@
 # Changelog – HexNotes
 
-Versionsschema: `major.minor`. Minor bumpas vid nya funktioner, major vid
-brytande ändringar (API-inkompatibilitet eller ändrat lagringsformat som
-kräver migrering). Aktuell version sätts i `APP_VERSION` i `backend/main.py`,
-exponeras via `GET /health` och visas längst ner i sidofältet.
+Version scheme: `major.minor`. Minor is bumped for new features, major for
+breaking changes (API incompatibility or a changed storage format that needs a
+migration). The current version is set in `APP_VERSION` in `backend/main.py`,
+exposed via `GET /health` and shown in the top bar.
 
-Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
-till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
-är app-skalet network-first, så deployer når klienter utan cache-bump.
+The service worker cache name (`hexnotes-vN` in `static/sw.js`) is **not** tied
+to the app version — it is only bumped when the caching strategy itself
+changes. Since 1.4 the app shell is network-first, so deploys reach clients
+without a cache bump.
+
+The whole project — changelog, commits, code comments, tests and UI — is
+written in English (entries before 1.22 and between 1.33 and 1.40 were
+originally in Swedish and have been translated).
+
+## 1.41 (2026-10-07)
+
+- **Last Swedish UI strings translated.** The ephemeral countdown badge said
+  `29h kvar` / `expired` read `utgången`; it now says `29h left`, `5m left` and
+  `expired`. The checklist button's tooltip is `Insert checklist`.
+- Changelog translated to English throughout.
 
 ## 1.40 (2026-10-07)
 
-- **Datumet på notkortet räknar kalenderdagar** i stället för 24-timmarsspann.
-  En not ändrad 18:00 igår stod som "today" under rubriken Yesterday i All
-  notes; nu stämmer kort och rubrik överens (även över sommartidsskiften).
-- Ny skärmdump i `docs/screenshot.png` med påhittade demonoter.
+- **The date on a note card counts calendar days** instead of 24-hour spans.
+  A note edited at 18:00 yesterday said "today" under the Yesterday heading in
+  All notes; card and heading now agree (across daylight-saving changes too).
+- New screenshot in `docs/screenshot.png`, made with invented demo notes.
 
 ## 1.39 (2026-10-07)
 
-- **Inbox heter nu All notes och innehåller alla ofästa noter**, taggade som
-  otaggade. Tidigare hamnade en taggad not bara i sin taggrupp under Tags, som
-  är ihopfälld från start, så en ny dagboksnot med `#GROT` syntes inte överst
-  efter refresh. Taggade noter syns nu både i All notes och i sin taggrupp.
-- **All notes sorteras efter senaste ändring**, nyaste överst, under
-  datumrubrikerna Today, Yesterday, Last 7 days och Older (lokal kalenderdag;
-  tomma rubriker visas inte). En not man sparar flyttas direkt upp under Today.
-  Pinned, Ephemeral och taggrupperna sorteras som förut efter skapad (#14).
-- Hopfällningsläget för All notes sparas under en ny nyckel, så ett gammalt
-  ihopfällt Inbox gömmer inte den nya gruppen.
-- Nya tester i `tests/test_list_ui.py`; beteendet verifierat i headless Chromium
-  (ordning, datumrubriker, taggad not i båda grupperna, spara flyttar upp,
-  sparad hopfällning, sökning, mobilvy).
+- **Inbox is now All notes and holds every unpinned note**, tagged or not.
+  Previously a tagged note only landed in its tag group under Tags, which
+  starts collapsed, so a new journal note tagged `#GROT` did not show at the
+  top after a refresh. Tagged notes now appear both in All notes and in their
+  tag group.
+- **All notes is sorted by last edit**, newest first, under the date headings
+  Today, Yesterday, Last 7 days and Older (local calendar day; empty headings
+  are skipped). A note you save moves straight up under Today. Pinned,
+  Ephemeral and the tag groups are still sorted by created date (#14).
+- The collapsed state of All notes is stored under a new key, so an old
+  collapsed Inbox does not hide the new group.
+- New tests in `tests/test_list_ui.py`; behaviour verified in headless Chromium
+  (order, date headings, tagged note in both groups, saving moves a note up,
+  remembered collapse, search, mobile view).
 
 ## 1.38 (2026-10-06)
 
-- **Notlistan visar fel i stället för att bli tom** (#13). `loadNotes` och
-  `pollNotes` svalde alla fel, så när proxyn var nere 2026-10-06 såg
-  sidofältet ut som om alla noter var borta. Nu visas en felruta överst i
-  listan med orsaken (servern nås inte / 401 / annan statuskod) och en
-  Try again-knapp; senast hämtade lista ligger kvar. Nätverksfel slår även på
-  offline-raden, och när servern svarar igen laddas listan om av sig själv.
-  På mobil växlar appen till listvyn så att felet syns när ingen not är öppen.
-- **Noterna i varje grupp sorteras efter när de skapades, nyaste först** (#14).
-  Gäller Ephemeral, Pinned, Inbox och varje tagg. En gammal not som redigeras
-  hoppar inte längre upp överst. Samma dag skapade noter (midnatt-`created_at`)
-  ordnas efter senaste ändring. Sökresultat är oförändrade.
-- Nya tester i `tests/test_list_ui.py`; beteendet verifierat i headless Chromium
-  (502, 401, nätverket nere från start, återhämtning, mobilvy, sortering).
+- **The note list shows an error instead of going empty** (#13). `loadNotes`
+  and `pollNotes` swallowed every error, so when the proxy was down on
+  2026-10-06 the sidebar looked as if all notes were gone. An error box at the
+  top of the list now names the cause (server unreachable / 401 / other
+  status) with a Try again button; the last loaded list stays on screen. A
+  network failure also raises the offline bar, and the list reloads by itself
+  when the server answers again. On mobile the app switches to the list view
+  so the error is seen when no note is open.
+- **Notes in each group are sorted by when they were created, newest first**
+  (#14). Applies to Ephemeral, Pinned, Inbox and every tag. An old note that
+  gets edited no longer jumps to the top. Notes created the same day
+  (midnight `created_at`) are ordered by last edit. Search results are
+  unchanged.
+- New tests in `tests/test_list_ui.py`; behaviour verified in headless Chromium
+  (502, 401, network down from the start, recovery, mobile view, ordering).
 
 ## 1.37 (2026-09-17)
 
-- **Notlistan hämtas sida för sida i stället för med ett hårdkodat tak** (#12).
-  Frontenden bad om `limit=200` på fem ställen och paginerade inte, så när
-  beståndet passerade 200 skulle de äldsta noterna tyst sluta synas i sidofältet
-  — utan fel och utan något som antydde att listan var avhuggen. Produktionen låg
-  på 161. `fetchAllNotes()` hämtar nu sidor om `NOTES_PAGE_SIZE` tills en kort
-  sida kommer, vilket tar bort gränsen i stället för att flytta den; `loadNotes`,
-  `pollNotes` och de tre listuppdateringarna efter skrivningar går alla genom
-  den. Tokenvalideringens `limit=1` är kvar som den var.
+- **The note list is fetched page by page instead of with a hardcoded cap**
+  (#12). The frontend asked for `limit=200` in five places and never paged, so
+  once the collection passed 200 the oldest notes would silently stop showing
+  in the sidebar — no error, nothing hinting that the list was cut off.
+  Production was at 161. `fetchAllNotes()` now fetches pages of
+  `NOTES_PAGE_SIZE` until a short page arrives, which removes the ceiling
+  instead of moving it; `loadNotes`, `pollNotes` and the three list refreshes
+  after writes all go through it. The token check's `limit=1` is unchanged.
 
-  Hela listan hämtas fortfarande, inte en sida i taget till gränssnittet:
-  sidofältet grupperar och sorterar lokalt, och backlinks och wiki-autocomplete
-  läser innehållet i varje not.
+  The whole list is still fetched, not one page at a time for the UI: the
+  sidebar groups and sorts locally, and backlinks and wiki autocomplete read
+  the content of every note.
 
 ## 1.36 (2026-09-17)
 
-- **Porten binds till loopback i stället för alla gränssnitt** (#10).
-  `8888:8000` publicerade appen på `0.0.0.0` fast den omvända proxyn når den som
-  `hexnotes:8000` över det delade docker-nätet — mappningen behövs bara för
-  felsökning från värden. Kontrollerat före ändringen: porten svarade inte
-  utifrån, men värdens `iptables INPUT` har policy ACCEPT, så molnbrandväggen
-  var enda lagret. Nu `127.0.0.1:8888:8000`.
-- **README säger varför tokenfilen måste skapas före första start** (#10).
-  `tokens.json` bind-monteras som fil; saknas den skapar Docker en katalog i
-  dess ställe, och appen startar men tappar tyst varje token vid omstart.
+- **The port is bound to loopback instead of every interface** (#10).
+  `8888:8000` published the app on `0.0.0.0` even though the reverse proxy
+  reaches it as `hexnotes:8000` over the shared docker network — the mapping
+  is only needed for debugging from the host. Checked before the change: the
+  port did not answer from outside, but the host's `iptables INPUT` policy is
+  ACCEPT, so the cloud firewall was the only layer. Now `127.0.0.1:8888:8000`.
+- **The README explains why the token file must exist before first start**
+  (#10). `tokens.json` is bind-mounted as a file; if it is missing Docker
+  creates a directory in its place, and the app starts but silently loses
+  every token on restart.
 
 ## 1.35 (2026-09-17)
 
-- **Versionshistoriken har ett tak per not** (#6). `_snapshot_note` skrev en ny
-  fil vid varje ändring och ingenting städade någonsin: 1140 versioner på 4,8 MB
-  för 161 noter, där en enda not stod för 215. `HISTORY_MAX_VERSIONS` är 50 och
-  gallringen sker vid nästa sparning, så gammal historik försvinner gradvis i
-  stället för i ett svep. Kört mot en kopia av produktionens historik: sex noter
-  berörs, 344 av 1140 versioner gallras, nyaste versionen alltid bevarad, och
-  filer som inte matchar versionsmönstret lämnas ifred.
+- **Version history has a cap per note** (#6). `_snapshot_note` wrote a new
+  file on every change and nothing ever cleaned up: 1140 versions, 4.8 MB, for
+  161 notes, one of which accounted for 215. `HISTORY_MAX_VERSIONS` is 50 and
+  pruning happens on the next save, so old history disappears gradually rather
+  than in one sweep. Run against a copy of production's history: six notes
+  affected, 344 of 1140 versions pruned, the newest version always kept, and
+  files that do not match the version pattern left alone.
 
 ## 1.34 (2026-09-17)
 
-Fortsättning på genomgången (issues #7, #8, #9).
+Continuation of the review (issues #7, #8, #9).
 
-- **`updated_at` och `created_at` är UTC i stället för naiv lokaltid** (#7).
-  `expires_at` och papperskorgens tider har alltid varit UTC, så ett svar bar två
-  tidsbaser utan att märka ut vilken som var vilken; en klient i en annan zon än
-  containern läste `updated_at` som sin egen lokala tid. Alla tre fälten går nu
-  att jämföra rakt av. Historikens och papperskorgens tidsstämplar är oförändrade
-  (naiv UTC, som frontenden redan läser med ett påhängt `Z`).
-- **`GET /api/notes` har gränser på `limit` och `offset`** (#8). Varje post bär
-  notens fulla `content`, och `limit` saknade tak. Negativa värden skar listan
-  bakifrån och gav ett tyst fel svar i stället för 422. Taket (`MAX_PAGE_SIZE`)
-  är 500; frontenden ber om 200. `q` och `tag` har längdgränser.
-- **`lifespan` i stället för det utfasade `on_event("startup")`** (#9).
-  Svep-tasken ligger på `app.state` — `asyncio` håller bara en svag referens till
-  körande tasks, så en naken `create_task()` kan skräpsamlas mitt i loopen — och
-  avbryts vid nedstängning.
-- **Tomt innehåll svarar 204 utan kropp** (#9). `JSONResponse(204, None)` skickade
-  en literal `null`, vilket 204 inte tillåter.
+- **`updated_at` and `created_at` are UTC instead of naive local time** (#7).
+  `expires_at` and the trash timestamps have always been UTC, so one response
+  carried two time bases without saying which was which; a client in another
+  zone than the container read `updated_at` as its own local time. All three
+  fields can now be compared directly. History and trash timestamps are
+  unchanged (naive UTC, which the frontend already reads with a `Z` appended).
+- **`GET /api/notes` has bounds on `limit` and `offset`** (#8). Every item
+  carries the note's full `content`, and `limit` had no ceiling. Negative
+  values sliced the list from the end and gave a silently wrong answer
+  instead of 422. The ceiling (`MAX_PAGE_SIZE`) is 500; the frontend asks for
+  200. `q` and `tag` have length limits.
+- **`lifespan` instead of the deprecated `on_event("startup")`** (#9). The
+  sweep task lives on `app.state` — `asyncio` only keeps a weak reference to
+  running tasks, so a bare `create_task()` can be garbage-collected mid-loop —
+  and is cancelled on shutdown.
+- **Empty content answers 204 without a body** (#9). `JSONResponse(204, None)`
+  sent a literal `null`, which 204 does not allow.
 
 ## 1.33 (2026-09-17)
 
-Buggfixar från en genomgång av backend (issues #4, #5, #11).
+Bug fixes from a review of the backend (issues #4, #5, #11).
 
-- **Efemära noter dog vid midnatt UTC i stället för vid sin TTL** (#4). `expires_at`
-  skrevs oquoterat i frontmattern, så YAML läste tillbaka det som ett `datetime`
-  vars `str()` är mellanslagsseparerad. `_sweep_expired` jämförde den strängen mot
-  `datetime.now(UTC).isoformat()`, där `" "` sorterar före `"T"` — så fort datumdelen
-  var lika ansågs noten utgången, upp till ett dygn för tidigt. Jämförelsen sker nu
-  som `datetime` via `parse_expiry()`, och ett oläsligt värde låter noten leva i
-  stället för att slänga den. Samma fel gjorde `expires_at` i API-svaret ogiltig
-  ISO 8601, vilket gav `NaNh kvar` i nedräkningsbadgen på Safari/iOS.
-- **Frontmattern byggs med `yaml.safe_dump`, inte f-strängar** (#5). En nyrad i
-  `created` öppnade tidigare en egen frontmatter-rad, så en not kunde få fält
-  (`pinned`, ett nytt `expires_at`) som inget API-anrop satt. Vanliga noter skrivs
-  byte för byte som förut — kontrollerat mot alla 161 noter i produktion; enda
-  skillnaden är att en numerisk tagg nu citeras korrekt (`tags: ['40', argus]`).
-- **`parse_frontmatter` åt första tecknet i brödtexten** (#11). `\s*` efter den
-  avslutande `---`-raden matchar nyrader lika gärna som mellanslag, så en not som
-  började med ett blanksteg eller en tomrad tappade det vid varje sparning. Tre
-  noter i produktion var redan drabbade. Äldre fel än de två ovan.
+- **Ephemeral notes died at midnight UTC instead of at their TTL** (#4).
+  `expires_at` was written unquoted in the frontmatter, so YAML read it back
+  as a `datetime` whose `str()` is space-separated. `_sweep_expired` compared
+  that string with `datetime.now(UTC).isoformat()`, where `" "` sorts before
+  `"T"` — as soon as the date part matched, the note counted as expired, up to
+  a day early. The comparison is now done as `datetime` via `parse_expiry()`,
+  and an unreadable value lets the note live instead of discarding it. The
+  same bug made `expires_at` in the API response invalid ISO 8601, which gave
+  `NaNh left` in the countdown badge on Safari/iOS.
+- **Frontmatter is built with `yaml.safe_dump`, not f-strings** (#5). A
+  newline in `created` used to open a frontmatter line of its own, so a note
+  could gain fields (`pinned`, a new `expires_at`) that no API call had set.
+  Ordinary notes are written byte for byte as before — checked against all
+  161 notes in production; the only difference is that a numeric tag is now
+  quoted correctly (`tags: ['40', argus]`).
+- **`parse_frontmatter` ate the first character of the body** (#11). `\s*`
+  after the closing `---` line matches newlines as readily as spaces, so a
+  note starting with a space or a blank line lost it on every save. Three
+  notes in production were already affected. An older bug than the two above.
 
 ## 1.32 (2026-09-17)
 
@@ -251,8 +270,6 @@ Security and cleanup pass. No behaviour changes.
 
 ## 1.22 (2026-09-07)
 
-_Changelog entries are in English from this version on._
-
 - **Live sync of the open note.** The note you are reading now updates when it
   changes on the server — an AI agent writing over the API, or another device.
   Previously only the sidebar refreshed, so an open note could sit stale
@@ -288,201 +305,230 @@ _Changelog entries are in English from this version on._
 
 ## 1.21.1 (2026-08-21)
 
-- **Bugfix**: ephemeral-flaggan tappades nar man namngav en ny not (doRename skapade noten utan ttl_hours och nollstalde flaggan) - drabbade mobilens FAB-langtryck dar namnfrasen kommer forst. doRename skickar nu med ttl_hours = 48 nar ephemeral ar armerad. 104 tester passerar.
+- **Bug fix**: the ephemeral flag was lost when naming a new note (`doRename`
+  created the note without `ttl_hours` and reset the flag) — this hit the
+  mobile FAB long-press, where the naming step comes first. `doRename` now
+  sends `ttl_hours = 48` when ephemeral is armed. 104 tests passing.
 
 ## 1.21 (2026-08-21)
 
-- **Mobil UX - langtryck pa +-knappen (FAB)** skapar en ephemeral not (48h). FAB:n lysnar gul under holdet med hint ⏳ Ephemeral not, kort vibration bekräftar. Kort tryck = vanlig not som vanligt.
-- Topbar-⏳-knappen goms på små skärmar (FAB-langtryck tar över); den finns kvar på desktop.
-- JS-syntax verifieras nu med esprima före deploy (efter 1.20.x-haveriet). 102 tester passerar.
+- **Mobile UX — long-press on the + button (FAB)** creates an ephemeral note
+  (48h). The FAB glows yellow during the hold with the hint ⏳ Ephemeral note,
+  and a short vibration confirms. A short tap creates a normal note as before.
+- The top-bar ⏳ button is hidden on small screens (the FAB long-press takes
+  over); it stays on desktop.
+- JS syntax is now checked with esprima before deploy (after the 1.20.x
+  breakage). 102 tests passing.
 
 ## 1.20.3 (2026-08-21)
 
-- KRITISK bugfix del 2: hourglass-strangen saknade aven avslutande apostrof (1.20.2 lagg bara till komma). JS-parse verifierad med esprima fore deploy. 99 tester passerar.
+- CRITICAL bug fix, part 2: the hourglass string was also missing its closing
+  quote (1.20.2 only added the comma). JS parse verified with esprima before
+  deploy. 99 tests passing.
 
 ## 1.20.2 (2026-08-21)
 
-- KRITISK bugfix: saknat komma i hourglass-ikonens SVG-strang (fr 1.20.1) kraschade hela app-JS:et - ingen kunde logga in. Fixat. 99 tester passerar.
+- CRITICAL bug fix: a missing comma in the hourglass icon's SVG string (from
+  1.20.1) crashed the whole app JS — nobody could log in. Fixed. 99 tests
+  passing.
 
 ## 1.20.1 (2026-08-21)
 
-- Bugfix mobil: hourglass-knappen (ephemeral) var osynlig/trang pa sma skarmar. Visas nu kompakt i topbaren pa mobil med hourglass-ikon; Today-knappen goms pa mobil. 99 tester passerar.
+- Mobile bug fix: the hourglass (ephemeral) button was invisible/cramped on
+  small screens. It now shows compactly in the top bar on mobile with an
+  hourglass icon; the Today button is hidden on mobile. 99 tests passing.
 
-## 1.20 – 2026-08-21
+## 1.20 (2026-08-21)
 
-- **UI — Ephemeral-sektionen överst**: kortlivade noter med levande TTL visas i en egen ⏳-sektion högst upp i sidofäljen (över Pinned). De exkluderas från Pinned/Inbox/taggar sänge de lever.
-- **Gul markering**: ephemeral-kort får gul vänsterkant och svag gul toning.
-- **Nedräknings-badge**: varje kort visar ⏳ 'Xh kvar' / 'Xm kvar', uppdateras varje minut.
-- 3 nya tester (99 totalt passerar).
+- **UI — Ephemeral section at the top**: short-lived notes with a live TTL are
+  shown in their own ⏳ section at the top of the sidebar (above Pinned). They
+  are excluded from Pinned/Inbox/tags while they live.
+- **Yellow highlight**: ephemeral cards get a yellow left edge and a faint
+  yellow tint.
+- **Countdown badge**: every card shows ⏳ `Xh left` / `Xm left`, updated every
+  minute.
+- 3 new tests (99 passing in total).
 
-## 1.19 – 2026-08-21
+## 1.19 (2026-08-21)
 
-- **Ny funktion — kortlivade (ephemeral) noter**: ny knapp i topbar (tidsglas-ikon, bredvid “+ New”) skapar en not som automatiskt flyttas till papperskorgen efter 48 timmar. TTL skickas som `ttl_hours` vid `POST /api/notes` (valfritt, heltimmar), lagras som `expires_at` i frontmatter och överlever redigeringar och pin-växling. Bakgrundssvep var 10:e minut + vid omstart städar utgångna noter.
+- **New feature — short-lived (ephemeral) notes**: a new top-bar button
+  (hourglass icon, next to "+ New") creates a note that is moved to the trash
+  automatically after 48 hours. The TTL is sent as `ttl_hours` on
+  `POST /api/notes` (optional, whole hours), stored as `expires_at` in the
+  frontmatter, and survives edits and pin toggles. A background sweep every
+  10 minutes and on restart cleans up expired notes.
 
-## 1.18 – 2026-07-24
+## 1.18 (2026-07-24)
 
-- **Bugfix — ny not tappade sin titel om man klickade i texten före Enter**:
-  filnamnsfältet vid namngivning av en ny not committade bara namnet på
-  Enter. Klickade man istället direkt i editorn (utan Enter) triggade det
-  bara ett blur som TOG BORT det skrivna namnet utan att spara det — noten
-  skapades sedan utan filnamn, och backend föll tillbaka på dagens datum som
-  filnamn. Blur committar nu namnet (samma no-op-skydd som Enter om fältet är
-  tomt/oförändrat) istället för att kasta det. Skyddade även mot en möjlig
-  dubbel-POST-race mot autosaven genom att låta namn-committen använda samma
-  isSaving-spärr.
+- **Bug fix — a new note lost its title if you clicked into the text before
+  pressing Enter**: when naming a new note, the filename field only committed
+  the name on Enter. Clicking straight into the editor instead (no Enter) only
+  triggered a blur that REMOVED the typed name without saving it — the note
+  was then created without a filename, and the backend fell back to today's
+  date as the filename. Blur now commits the name (with the same no-op guard
+  as Enter when the field is empty/unchanged) instead of discarding it. Also
+  guarded against a possible double-POST race with autosave by letting the
+  name commit use the same `isSaving` lock.
 
-## 1.17 – 2026-07-24
+## 1.17 (2026-07-24)
 
-- **Bugfix — borttaget auto-trash-on-blur i editorn**: när textarean tappade
-  fokus medan den var tom PATCHades noten med tomt innehåll, vilket
-  server-sidan tolkar som "flytta till papperskorgen". Blur är inget bevis på
-  avsikt — den triggas av avbrott (notis, appväxling, telefonlås,
-  autocomplete som stjäl fokus), även mitt i en redigering (t.ex.
-  markera-allt-och-skriv-om). Orsakade en riktig radering av home.md
-  2026-07-13. Radering sker nu bara via den explicita delete-knappen.
+- **Bug fix — removed auto-trash-on-blur in the editor**: when the textarea
+  lost focus while empty, the note was PATCHed with empty content, which the
+  server interprets as "move to trash". A blur is no proof of intent — it is
+  triggered by interruptions (a notification, switching apps, locking the
+  phone, autocomplete stealing focus), even in the middle of an edit (e.g.
+  select-all-and-retype). It caused a real deletion of home.md on 2026-07-13.
+  Deleting now only happens through the explicit delete button.
 
-## 1.16 – 2026-07-07
+## 1.16 (2026-07-07)
 
-- **Auto-uppdaterad fillista**: sidofältet pollar `/api/notes` var 30:e sekund
-  (bara när fliken är synlig) och direkt när fliken får fokus igen. Ritar bara
-  om när listan faktiskt ändrats — scrolläge och pågående redigering störs inte.
-  Noter skapade via API:t (t.ex. från Claude) dyker upp utan manuell reload.
+- **Auto-refreshing note list**: the sidebar polls `/api/notes` every 30
+  seconds (only while the tab is visible) and immediately when the tab regains
+  focus. It only re-renders when the list actually changed — scroll position
+  and ongoing edits are not disturbed. Notes created through the API (e.g. by
+  Claude) appear without a manual reload.
 
-## 1.15 – 2026-06-26
+## 1.15 (2026-06-26)
 
-- **Checklista i editorn**: ny ☑-knapp i filnamnsraden som lägger `- [ ] ` på
-  aktuell rad, eller på varje markerad rad om flera är markerade.
-- **Auto-fortsätt på lista**: Enter på en checkbox- eller punktrad skapar nästa
-  punkt automatiskt; Enter på en tom punkt avslutar listan.
+- **Checklist in the editor**: a new ☑ button in the filename bar that puts
+  `- [ ] ` on the current line, or on every selected line when several are
+  selected.
+- **List auto-continue**: Enter on a checkbox or bullet line creates the next
+  item automatically; Enter on an empty item ends the list.
 
-## 1.14 – 2026-06-11
+## 1.14 (2026-06-11)
 
-- **Tematoggle**: diskret knapp längst ner i sidofältet (bredvid Trash)
-  som cyklar auto → mörk → ljus. Auto följer systemet (som tidigare),
-  de andra två låser temat via data-theme-attribut. Valet sparas i
-  localStorage och appliceras före första render (ingen blink).
-  theme-color-metataggen (PWA-statusfältet på Android) följer med
+- **Theme toggle**: a discreet button at the bottom of the sidebar (next to
+  Trash) that cycles auto → dark → light. Auto follows the system (as before);
+  the other two lock the theme via a `data-theme` attribute. The choice is
+  saved in localStorage and applied before first render (no flash). The
+  `theme-color` meta tag (the PWA status bar on Android) follows along.
 
-## 1.13 – 2026-06-11
+## 1.13 (2026-06-11)
 
-- **Lucide-ikoner**: alla emoji-knappar (📌🕘👁🗑✎📅 m.fl.) ersatta med
-  inline-SVG från Lucide (ISC-licens) — konsekvent utseende på alla
-  plattformar, ärver färg via currentColor så hover/aktiv-tillstånd
-  färgas på riktigt. Ingen CDN i drift; path-data inbäddad i index.html
-- **Ny PWA-appikon**: violett gradient på rundad kvadrat med vitt
-  H-monogram (geometriskt ritat, inget typsnittsberoende) — ersätter
-  gamla hexagon/anteckningsdesignen. Service worker-cache bumpad till v4
-  så klienter hämtar de nya ikonerna
+- **Lucide icons**: all emoji buttons (📌🕘👁🗑✎📅 and more) replaced with
+  inline SVG from Lucide (ISC licence) — a consistent look on every platform,
+  inheriting colour via `currentColor` so hover/active states are actually
+  coloured. No CDN at runtime; path data is embedded in index.html.
+- **New PWA app icon**: a violet gradient on a rounded square with a white
+  H monogram (drawn geometrically, no font dependency) — replaces the old
+  hexagon/note design. Service worker cache bumped to v4 so clients fetch the
+  new icons.
 
-## 1.12 – 2026-06-11
+## 1.12 (2026-06-11)
 
-- **Tagg-autocomplete**: `#` följt av minst ett tecken föreslår befintliga
-  taggar (minimum ett tecken så den inte triggar på markdown-rubriker);
-  samma dropdown och tangentstyrning som [[-autocomplete
-- **Backlinks**: diskret rad längst ner i preview — "Linked from: x · y" —
-  med klickbara länkar till noter som [[länkar]] hit; visas bara när minst
-  en annan not länkar till den aktuella
+- **Tag autocomplete**: `#` followed by at least one character suggests
+  existing tags (at least one character so it does not trigger on Markdown
+  headings); the same dropdown and keyboard handling as `[[` autocomplete.
+- **Backlinks**: a discreet line at the bottom of the preview — "Linked from:
+  x · y" — with clickable links to notes that `[[link]]` here; only shown when
+  at least one other note links to the current one.
 
-## 1.11 – 2026-06-11
+## 1.11 (2026-06-11)
 
-- **Seed-not vid tom installation**: en helt tom notes-mapp får en
-  förifylld `home.md` (välkomsttext + funktionsguide) vid uppstart, så
-  nya installationer öppnar på en startsida istället för en tom lista.
-  Rörs aldrig om det redan finns noter
+- **Seed note on an empty install**: a completely empty notes folder gets a
+  prefilled `home.md` (welcome text + feature guide) on startup, so new
+  installs open on a start page instead of an empty list. Never touched if
+  notes already exist.
+- **Back navigation**: every opened note gets a hash URL (`#note-id`) in the
+  browser history — the phone's back gesture, the browser's back/forward and
+  Alt+← go to the previous note instead of leaving the app. A visible ←
+  button in the filename bar (only shown when there is something to go back
+  to). Hash URLs work as deep links: load the page with `#note-id` and that
+  note opens directly. Rename updates the URL; deleted notes in the history
+  fall back to the home note.
 
-- **Bakåtnavigering**: varje öppnad not får en hash-URL (#not-id) i
-  webbläsarhistoriken — telefonens bakåtgest, webbläsarens bakåt/framåt och
-  Alt+← går till föregående not istället för att lämna appen. Synlig
-  ←-knapp i filnamnsraden (visas bara när det finns något att gå tillbaka
-  till). Hash-URL:er fungerar som deep-links: ladda sidan med #not-id så
-  öppnas den noten direkt. Rename uppdaterar URL:en; borttagna noter i
-  historiken faller tillbaka till home-noten
+## 1.10 (2026-06-11)
 
-## 1.10 – 2026-06-11
+- **`[[` autocomplete**: typing `[[` in the editor opens a dropdown that
+  filters note names as you type; arrow keys navigate, Enter/Tab insert the
+  link (with closing `]]`), Escape closes.
+- **Clickable checkboxes in preview**: `- [ ]` lines render as real
+  checkboxes that can be ticked directly in reading mode — the change is saved
+  to the file (the nth checkbox maps to the nth task line, code blocks are
+  skipped).
+- **Today's note**: a 📅 button in the top bar (mobile too) and `Ctrl+D` open
+  today's `YYYY-MM-DD.md`, or create it if it does not exist.
 
-- **[[ -autocomplete**: skriv `[[` i editorn så öppnas en dropdown som
-  filtrerar notnamn medan du skriver; piltangenter navigerar, Enter/Tab
-  infogar länken (med avslutande `]]`), Escape stänger
-- **Klickbara checkboxar i preview**: `- [ ]`-rader renderas som riktiga
-  checkboxar som kan bockas av direkt i läsläget — ändringen sparas till
-  filen (n:te checkboxen mappas till n:te task-raden, kodblock hoppas över)
-- **Dagens not**: 📅-knapp i topbaren (även mobil) och `Ctrl+D` öppnar
-  dagens `YYYY-MM-DD.md`, eller skapar den om den inte finns
+## 1.9 (2026-06-11)
 
-## 1.9 – 2026-06-11
+- **Double-click/double-tap to edit**: double-clicking (desktop) or
+  double-tapping (mobile) the rendered text switches to the editor; links are
+  exempt — they navigate as usual.
 
-- **Dubbelklick/dubbeltapp för redigering**: dubbelklick (desktop) eller
-  dubbeltapp (mobil) på den renderade texten växlar till editorn; länkar
-  undantagna — de navigerar som vanligt
+## 1.8 (2026-06-11)
 
-## 1.8 – 2026-06-11
+- **Notes open in preview mode**: every note with content is rendered as
+  Markdown on opening; Ctrl+M or 👁 switches to editing. Empty notes open
+  straight in the editor.
+- **Bug fix**: "new note" did nothing when the active note was in preview mode
+  — `createNewNote()` never reset the preview flag, so the editor stayed
+  hidden behind the old note's rendered HTML.
 
-- **Noter öppnas i preview-läge**: alla noter med innehåll renderas som
-  markdown direkt vid öppning; Ctrl+M eller 👁 växlar till redigering.
-  Tomma noter öppnas direkt i editorn
-- **Buggfix**: "ny not" gjorde ingenting när aktiv not var i preview-läge —
-  `createNewNote()` återställde aldrig preview-flaggan, så editorn förblev
-  dold bakom gamla notens renderade HTML
+## 1.7 (2026-06-10)
 
-## 1.7 – 2026-06-10
+- **Start page via a home note**: if a note `home.md` exists it opens in
+  preview mode at app start (with clickable wiki links) instead of the last
+  opened note; clicking the HexNotes title in the top bar always goes home.
+- Visible on-state for emoji buttons (📌 pin, 👁 preview): a background chip
+  with an accent border — emojis ignore CSS colour, so the colour change never
+  showed.
 
-- **Startsida via hem-not**: finns en not `home.md` öppnas den i preview-läge
-  vid appstart (med klickbara wiki-länkar) istället för senast öppnade noten;
-  klick på HexNotes-titeln i toppbaren går alltid hem
-- Synlig på-markering för emoji-knappar (📌 pin, 👁 preview): bakgrundschip
-  med accentram — emojis ignorerar CSS-färg, så färgbytet syntes aldrig
+## 1.6 (2026-06-10)
 
-## 1.6 – 2026-06-10
+- **Empty trash**: `DELETE /api/trash` permanently deletes everything in the
+  trash (files + history); an "Empty trash" button in the trash dialog with a
+  two-click guard.
+- Consistent English throughout the UI (dialogs, buttons, date format).
+- The version number is shown in the top bar next to the HexNotes title (moved
+  from the sidebar).
 
-- **Empty trash**: `DELETE /api/trash` raderar allt i papperskorgen permanent
-  (filer + historik); "Empty trash"-knapp i trash-dialogen med tvåklicksskydd
-- Konsekvent engelska i hela UI:t (dialoger, knappar, datumformat)
-- Versionsnumret visas i toppbaren bredvid HexNotes-titeln (flyttat från
-  sidofältet)
+## 1.5 (2026-06-10)
 
-## 1.5 – 2026-06-10
+- **Trash with a UI**: list, preview, restore and delete permanently
+  (`GET /api/trash`, `GET/POST/DELETE /api/trash/{name}(/restore)`).
+- Deletion uses timestamped names in `.trash/` — name collisions never
+  overwrite anything (previously the oldest file was lost).
+- Version history follows the note into the trash and back on restore; a new
+  note with the same name starts with a clean history.
+- Restoring never collides with live notes — it gets a unique name
+  (`name-2.md`).
+- Permanent deletion removes both file and history (for content that really
+  has to be destroyed, e.g. leaked secrets).
+- **Security fix**: path traversal in the rename endpoint (filenames were not
+  sanitized).
+- The version is exposed in `/health` and shown in the sidebar.
 
-- **Papperskorg med UI**: lista, förhandsvisa, återställ och radera permanent
-  (`GET /api/trash`, `GET/POST/DELETE /api/trash/{name}(/restore)`)
-- Radering använder timestampade namn i `.trash/` — namnkrockar skriver aldrig
-  över något (tidigare förlorades äldsta filen)
-- Versionshistoriken följer med noten till papperskorgen och tillbaka vid
-  återställning; en ny not med samma namn startar med ren historik
-- Återställning krockar aldrig med levande noter — får unikt namn (`namn-2.md`)
-- Permanent radering tar bort både fil och historik (för innehåll som måste
-  förstöras på riktigt, t.ex. läckta hemligheter)
-- **Säkerhetsfix**: path traversal i rename-endpointen (filnamn saniterades inte)
-- Version exponeras i `/health` och visas i sidofältet
+## 1.4 (2026-06-10)
 
-## 1.4 – 2026-06-10
+- The service worker is network-first for the app shell — deploys reach PWA
+  clients automatically without a cache bump.
+- Bug fix: naming a new note creates it immediately, even with empty content.
+- Bug fix: a note that never had content is not trashed on lost focus.
 
-- Service workern network-first för app-skalet — deployer når PWA-klienter
-  automatiskt utan cache-bump
-- Bugfix: att namnge en ny not skapar den direkt, även med tomt innehåll
-- Bugfix: en not som aldrig haft innehåll papperskorgas inte vid tappat fokus
+## 1.3 (2026-06-10)
 
-## 1.3 – 2026-06-10
+- **Version history per note**: earlier versions are saved in
+  `.history/<id>/` on every save (`GET /api/notes/{id}/history(/{version})`),
+  with a read-only view and a Restore button in the UI.
+- **Wiki links**: `[[note name]]` renders as a clickable link in the preview;
+  missing notes are shown red/dashed.
+- The filename field is editable directly when a new note is created, with
+  autofocus.
 
-- **Versionshistorik per not**: tidigare versioner sparas i `.history/<id>/`
-  vid varje sparning (`GET /api/notes/{id}/history(/{version})`), med
-  readonly-vy och Återställ-knapp i UI
-- **Wiki-länkar**: `[[notnamn]]` renderas som klickbar länk i förhandsgranskningen;
-  saknade noter visas röda/streckade
-- Filnamnsfältet redigerbart direkt när en ny not skapas, med autofokus
+## 1.2 (2026-04/05)
 
-## 1.2 – 2026-04/05
+- Command palette (`Ctrl+P`), find in note (`Ctrl+F`), search clearing, match
+  highlighting and content snippets in search results.
+- Flat result list when searching.
 
-- Kommandopalett (`Ctrl+P`), sök-i-not (`Ctrl+F`), sökrensning,
-  träffmarkering och innehållssnippets i sökresultat
-- Platt resultatlista vid sökning
+## 1.1 (2026-04)
 
-## 1.1 – 2026-04
+- Tag-based sidebar groups with filter chips, Pinned/Inbox/Tags sections,
+  collapse all.
 
-- Taggbaserade sidofältsgrupper med filterchips, Pinned/Inbox/Tags-sektioner,
-  collapse all
+## 1.0 (2026-04-05)
 
-## 1.0 – 2026-04-05
-
-- Första versionen: FastAPI-backend, noter som `.md`-filer med YAML-frontmatter,
-  token-auth, PWA-frontend i en enda HTML-fil, markdown-förhandsgranskning
-  (`Ctrl+M`), autospar, offline-läge, papperskorg på disk
+- First version: FastAPI backend, notes as `.md` files with YAML frontmatter,
+  token auth, a PWA frontend in a single HTML file, Markdown preview
+  (`Ctrl+M`), autosave, offline mode, trash on disk.

@@ -1,38 +1,38 @@
 # tests.md – HexNotes
 
-> Testspecifikation för HexNotes. Körs separat från byggspecen (agents.md).
-> Fokus: backend unit-tester och API-integrationstester. Frontend-tester är out of scope för v1.
+> Test specification for HexNotes. Kept separate from the build spec (agents.md).
+> Focus: backend unit tests and API integration tests. Frontend tests are out of scope for v1.
 
 ---
 
-## Testmiljö
+## Test environment
 
 ```
 tests/
-├── conftest.py          # pytest fixtures: tmp notes-mapp, test-klient
-├── test_unit.py         # Unit-tester för ren logik
-├── test_api.py          # Integrationstester för API-endpoints
-├── test_history.py      # Versionshistorik: snapshots, restore, rename-migrering
-└── test_trash.py        # Papperskorg: lista, återställ, permanent radering
+├── conftest.py          # pytest fixtures: tmp notes folder, test client
+├── test_unit.py         # Unit tests for pure logic
+├── test_api.py          # Integration tests for API endpoints
+├── test_history.py      # Version history: snapshots, restore, rename migration
+└── test_trash.py        # Trash: list, restore, permanent deletion
 ```
 
-> **Obs:** Detta dokument är den ursprungliga testspecifikationen. Sviten har
-> vuxit sedan dess (86 tester) — `tests/`-katalogen är källan till sanning,
-> och README beskriver vad varje fil täcker.
+> **Note:** This document is the original test specification. The suite has
+> grown since then (151 tests) — the `tests/` directory is the source of truth,
+> and the README describes what each file covers.
 
-Kör lokalt inuti Docker:
+Run locally inside Docker:
 
 ```bash
 docker compose run --rm hexnotes pytest tests/ -v
 ```
 
-Eller som ett separat steg i byggordningen:
+Or as a separate step in the build order:
 
 ```bash
 docker compose run --rm hexnotes pytest tests/ -v --tb=short
 ```
 
-Inga externa beroenden – testerna använder en temporär notes-mapp i minnet och en in-process FastAPI-testklient.
+No external dependencies – the tests use a temporary notes folder and an in-process FastAPI test client.
 
 ---
 
@@ -50,7 +50,7 @@ TEST_ADMIN = "admin_test_secret"
 
 @pytest.fixture
 def tmp_notes(tmp_path, monkeypatch):
-    """Temporär notes-mapp för varje test."""
+    """Temporary notes folder for each test."""
     notes_dir = tmp_path / "notes"
     notes_dir.mkdir()
     (notes_dir / ".trash").mkdir()
@@ -61,7 +61,7 @@ def tmp_notes(tmp_path, monkeypatch):
 
 @pytest.fixture
 def client(tmp_notes, monkeypatch):
-    """FastAPI-testklient med autentisering."""
+    """FastAPI test client with authentication."""
     monkeypatch.setenv("ADMIN_SECRET", TEST_ADMIN)
     monkeypatch.setattr("backend.main.TOKENS", [
         {"name": "test", "token": TEST_TOKEN, "created_at": "2025-04-03T10:00:00"}
@@ -70,7 +70,7 @@ def client(tmp_notes, monkeypatch):
 
 @pytest.fixture
 def auth(client):
-    """Headers med giltig token."""
+    """Headers with a valid token."""
     return {"Authorization": f"Bearer {TEST_TOKEN}"}
 
 @pytest.fixture
@@ -80,11 +80,11 @@ def admin_auth():
 
 ---
 
-## Unit-tester (`test_unit.py`)
+## Unit tests (`test_unit.py`)
 
-Testar ren logik utan nätverk eller filsystem.
+Tests pure logic without network or filesystem.
 
-### Slug-generering
+### Slug generation
 
 ```python
 from backend.main import generate_slug
@@ -93,10 +93,10 @@ def test_slug_basic():
     assert generate_slug("Docker compose tips") == "docker-compose-tips"
 
 def test_slug_strips_tags():
-    assert generate_slug("Min anteckning #docker #linux") == "min-anteckning"
+    assert generate_slug("My note #docker #linux") == "my-note"
 
 def test_slug_strips_special_chars():
-    assert generate_slug("Hej! Vad händer?") == "hej-vad-händer"
+    assert generate_slug("Hi! What's up?") == "hi-whats-up"
 
 def test_slug_max_length():
     long = "a" * 100
@@ -110,7 +110,7 @@ def test_slug_only_tags_returns_untitled():
     assert generate_slug("#docker #linux") == "untitled"
 ```
 
-### Tag-extrahering
+### Tag extraction
 
 ```python
 from backend.main import extract_tags
@@ -119,20 +119,20 @@ def test_extract_tags_basic():
     assert extract_tags("hello #docker #linux") == ["docker", "linux"]
 
 def test_extract_tags_none():
-    assert extract_tags("ingen taggar här") == []
+    assert extract_tags("no tags here") == []
 
 def test_extract_tags_deduplication():
     assert extract_tags("#docker #docker #linux") == ["docker", "linux"]
 
 def test_extract_tags_ignores_urls():
-    # Ska inte extrahera fragment-identifierare ur URLs
+    # Must not extract fragment identifiers from URLs
     assert "example" not in extract_tags("https://example.com/#section")
 
 def test_extract_tags_case_preserved():
     assert extract_tags("#Docker") == ["Docker"]
 ```
 
-### Frontmatter-parsning
+### Frontmatter parsing
 
 ```python
 from backend.main import parse_frontmatter, strip_frontmatter
@@ -141,7 +141,7 @@ FRONTMATTER_DOC = """---
 tags: [docker, linux]
 created: 2025-04-03
 ---
-Innehåll här
+Content here
 """
 
 def test_parse_frontmatter_tags():
@@ -154,29 +154,29 @@ def test_parse_frontmatter_created():
 
 def test_strip_frontmatter_returns_content():
     _, body = parse_frontmatter(FRONTMATTER_DOC)
-    assert body.strip() == "Innehåll här"
+    assert body.strip() == "Content here"
 
 def test_parse_frontmatter_missing():
-    meta, body = parse_frontmatter("Ingen frontmatter här\n#docker")
+    meta, body = parse_frontmatter("No frontmatter here\n#docker")
     assert meta == {}
-    assert "Ingen frontmatter" in body
+    assert "No frontmatter" in body
 
 def test_parse_frontmatter_empty_tags():
-    doc = "---\ntags: []\ncreated: 2025-04-03\n---\nInnehåll"
+    doc = "---\ntags: []\ncreated: 2025-04-03\n---\nContent"
     meta, _ = parse_frontmatter(doc)
     assert meta["tags"] == []
 ```
 
-### created_at från filnamn
+### created_at from filename
 
 ```python
 from backend.main import created_at_from_filename
 
-def test_created_at_datumprefix():
+def test_created_at_date_prefix():
     assert created_at_from_filename("2025-04-03-docker-tips.md") == "2025-04-03"
 
 def test_created_at_timeless():
-    # Tidlösa noter utan datumprefix
+    # Timeless notes without a date prefix
     assert created_at_from_filename("ideas.md") is None
 
 def test_created_at_invalid_prefix():
@@ -186,7 +186,7 @@ def test_created_at_only_date():
     assert created_at_from_filename("2025-04-03.md") == "2025-04-03"
 ```
 
-### Filnamnsvalidering
+### Filename validation
 
 ```python
 from backend.main import sanitize_filename
@@ -202,15 +202,15 @@ def test_sanitize_strips_path_traversal():
     assert ".." not in sanitize_filename("../../etc/passwd")
 
 def test_sanitize_strips_leading_dot():
-    # Ska inte skapa dolda filer
+    # Must not create hidden files
     assert not sanitize_filename(".hidden").startswith(".")
 ```
 
 ---
 
-## API-integrationstester (`test_api.py`)
+## API integration tests (`test_api.py`)
 
-Testar endpoints end-to-end med en riktig FastAPI-testklient och temporär notes-mapp.
+Tests endpoints end to end with a real FastAPI test client and a temporary notes folder.
 
 ### Auth
 
@@ -220,7 +220,7 @@ def test_no_token_returns_401(client):
     assert r.status_code == 401
 
 def test_wrong_token_returns_401(client):
-    r = client.get("/api/notes", headers={"Authorization": "Bearer fel_token"})
+    r = client.get("/api/notes", headers={"Authorization": "Bearer wrong_token"})
     assert r.status_code == 401
 
 def test_valid_token_returns_200(client, auth):
@@ -236,11 +236,11 @@ def test_admin_endpoint_with_admin_secret(client, admin_auth):
     assert r.status_code == 200
 ```
 
-### Skapa note (POST)
+### Create note (POST)
 
 ```python
 def test_create_note_basic(client, auth):
-    r = client.post("/api/notes", json={"content": "Hej världen\n#test"}, headers=auth)
+    r = client.post("/api/notes", json={"content": "Hello world\n#test"}, headers=auth)
     assert r.status_code == 200
     data = r.json()
     assert "id" in data
@@ -272,28 +272,28 @@ def test_create_note_content_excludes_frontmatter(client, auth):
     assert "---" not in r.json()["content"]
 ```
 
-### Hämta note (GET)
+### Get note (GET)
 
 ```python
 def test_get_note(client, auth):
-    created = client.post("/api/notes", json={"content": "Hej"}, headers=auth).json()
+    created = client.post("/api/notes", json={"content": "Hello"}, headers=auth).json()
     r = client.get(f"/api/notes/{created['id']}", headers=auth)
     assert r.status_code == 200
-    assert r.json()["content"] == "Hej"
+    assert r.json()["content"] == "Hello"
 
 def test_get_note_not_found(client, auth):
-    r = client.get("/api/notes/finns-inte", headers=auth)
+    r = client.get("/api/notes/does-not-exist", headers=auth)
     assert r.status_code == 404
 ```
 
-### Uppdatera note (PATCH)
+### Update note (PATCH)
 
 ```python
 def test_patch_updates_content(client, auth):
     created = client.post("/api/notes", json={"content": "Original"}, headers=auth).json()
-    r = client.patch(f"/api/notes/{created['id']}", json={"content": "Uppdaterad"}, headers=auth)
+    r = client.patch(f"/api/notes/{created['id']}", json={"content": "Updated"}, headers=auth)
     assert r.status_code == 200
-    assert r.json()["content"] == "Uppdaterad"
+    assert r.json()["content"] == "Updated"
 
 def test_patch_updates_tags_in_frontmatter(client, auth, tmp_notes):
     created = client.post("/api/notes", json={"content": "Text #python"}, headers=auth).json()
@@ -311,8 +311,8 @@ def test_patch_empty_content_moves_to_trash(client, auth, tmp_notes):
 
 def test_patch_does_not_change_filename(client, auth):
     created = client.post("/api/notes", json={"content": "Text", "filename": "ideas.md"}, headers=auth).json()
-    r = client.patch("/api/notes/ideas", json={"content": "Nytt", "filename": "annat.md"}, headers=auth)
-    # filename i body ignoreras – endast content uppdateras
+    r = client.patch("/api/notes/ideas", json={"content": "New", "filename": "other.md"}, headers=auth)
+    # filename in the body is ignored – only content is updated
     assert r.status_code == 200
     assert r.json()["filename"] == "ideas.md"
 ```
@@ -341,15 +341,15 @@ def test_rename_adds_md_extension(client, auth):
 def test_rename_updates_index(client, auth):
     client.post("/api/notes", json={"content": "Text", "filename": "old.md"}, headers=auth)
     client.post("/api/notes/old/rename", json={"new_filename": "new.md"}, headers=auth)
-    # Gammalt ID ska vara borta
+    # The old ID must be gone
     r_old = client.get("/api/notes/old", headers=auth)
     assert r_old.status_code == 404
-    # Nytt ID ska finnas
+    # The new ID must exist
     r_new = client.get("/api/notes/new", headers=auth)
     assert r_new.status_code == 200
 ```
 
-### Radera note (DELETE)
+### Delete note (DELETE)
 
 ```python
 def test_delete_moves_to_trash(client, auth, tmp_notes):
@@ -360,14 +360,14 @@ def test_delete_moves_to_trash(client, auth, tmp_notes):
     assert (tmp_notes / ".trash" / "del.md").exists()
 
 def test_delete_not_found_returns_404(client, auth):
-    r = client.delete("/api/notes/finns-inte", headers=auth)
+    r = client.delete("/api/notes/does-not-exist", headers=auth)
     assert r.status_code == 404
 
 def test_delete_trash_collision_overwrites(client, auth, tmp_notes):
-    # Skapa och radera "del.md" → hamnar i trash
+    # Create and delete "del.md" → ends up in trash
     client.post("/api/notes", json={"content": "First", "filename": "del.md"}, headers=auth)
     client.delete("/api/notes/del", headers=auth)
-    # Skapa ny "del.md" och radera igen → ska skriva över i trash
+    # Create a new "del.md" and delete again → must overwrite in trash
     client.post("/api/notes", json={"content": "Second", "filename": "del.md"}, headers=auth)
     r = client.delete("/api/notes/del", headers=auth)
     assert r.status_code == 200
@@ -375,7 +375,7 @@ def test_delete_trash_collision_overwrites(client, auth, tmp_notes):
     assert "Second" in trash_content
 ```
 
-### Sökning
+### Search
 
 ```python
 def test_search_by_content(client, auth):
@@ -405,14 +405,14 @@ def test_search_empty_returns_all(client, auth):
     assert len(r.json()) == 2
 ```
 
-### Token-hantering (admin)
+### Token management (admin)
 
 ```python
 def test_create_token(client, admin_auth):
-    r = client.post("/admin/tokens", json={"name": "nyenhet"}, headers=admin_auth)
+    r = client.post("/admin/tokens", json={"name": "newdevice"}, headers=admin_auth)
     assert r.status_code == 200
     data = r.json()
-    assert data["name"] == "nyenhet"
+    assert data["name"] == "newdevice"
     assert "token" in data
     assert data["token"].startswith("tok_")
 
@@ -437,7 +437,7 @@ def test_revoked_token_returns_401(client, admin_auth):
 def test_list_tokens_hides_values(client, admin_auth):
     r = client.get("/admin/tokens", headers=admin_auth)
     for t in r.json()["tokens"]:
-        assert "token" not in t  # token-värdet ska aldrig exponeras i lista
+        assert "token" not in t  # the token value must never be exposed in a list
 ```
 
 ### Health
@@ -452,34 +452,34 @@ def test_health(client):
 
 ---
 
-## Köra specifika tester
+## Running specific tests
 
 ```bash
-# Alla tester
+# All tests
 docker compose run --rm hexnotes pytest tests/ -v
 
-# Bara unit-tester
+# Unit tests only
 docker compose run --rm hexnotes pytest tests/test_unit.py -v
 
-# Bara API-tester
+# API tests only
 docker compose run --rm hexnotes pytest tests/test_api.py -v
 
-# Ett specifikt test
+# One specific test
 docker compose run --rm hexnotes pytest tests/test_api.py::test_rename_updates_index -v
 
-# Med coverage-rapport
+# With a coverage report
 docker compose run --rm hexnotes pytest tests/ --cov=backend --cov-report=term-missing
 ```
 
 ---
 
-## Requirements för tester
+## Requirements for tests
 
-Lägg till i `requirements.txt`:
+Add to `requirements.txt`:
 
 ```
 pytest
 pytest-asyncio
-httpx        # krävs av FastAPI TestClient
-pytest-cov   # valfritt, för coverage
+httpx        # required by FastAPI TestClient
+pytest-cov   # optional, for coverage
 ```

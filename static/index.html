@@ -615,8 +615,9 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
 .cm-lp-task { cursor: pointer; width: 15px; height: 15px; accent-color: var(--accent); margin: 0 2px 0 0; vertical-align: middle; }
 #save-indicator {
   position: absolute;
-  bottom: 12px;
-  right: 16px;
+  top: 6px;
+  right: 10px;
+  z-index: 2;
   font-size: 14px;
   color: var(--accent);
   opacity: 0;
@@ -1350,6 +1351,9 @@ let newNoteFilename = null;
 let ephemeralArmed = false;  // the next new note will be ephemeral (48h)
 let activeExpiresAt = null;
 let pendingContent = null;
+// Bumped whenever another note (or a fresh new note) takes over the editor,
+// so a create still in flight can tell it is no longer the one on screen.
+let editSession = 0;
 // Version (content hash) the open editor is based on. Sent as base_version on
 // PATCH so the backend can reject a write that would clobber someone else's.
 let activeVersion = null;
@@ -1734,7 +1738,14 @@ if (LIVE) {
       value(a, b) { if (liveShown) liveSelect(a, b); else TA.setSelectionRange.call(this, a, b); },
     },
     focus: {
-      value(opts) { if (liveShown) liveView.focus(); else HTMLElement.prototype.focus.call(this, opts); },
+      value(opts) {
+        if (!liveShown) return HTMLElement.prototype.focus.call(this, opts);
+        liveView.focus();
+        // Re-assert the selection: after a fresh state (new note) focus alone
+        // can leave the DOM caret outside the content, and typing goes nowhere.
+        const { anchor, head } = liveView.state.selection.main;
+        liveView.dispatch({ selection: { anchor, head } });
+      },
     },
   });
 }
@@ -1860,6 +1871,7 @@ async function loadNotes() {
     notes = await fetchAllNotes(q);
     syncActiveNoteFrom(notes, seq);
     renderNotesList();
+    if (!draftsRestored && !q) { draftsRestored = true; restoreDrafts(); }
     // Restore active note — URL hash (deep link) wins, then home.md start page
     if (!activeNoteId && !isNew) {
       const hashId = decodeURIComponent(location.hash.slice(1));
@@ -2276,6 +2288,8 @@ function relativeDate(iso) {
 
 // === SECTION: OPEN NOTE ===
 function openNote(id) {
+  flushPending();
+  editSession++;
   if (isNew && pendingContent === null) {
     // Abandon unsaved empty new note
     isNew = false;
@@ -2324,6 +2338,7 @@ function openNote(id) {
 }
 
 function showEmpty() {
+  editSession++;
   activeNoteId = null;
   activeVersion = null;
   activeExpiresAt = null;
@@ -2341,6 +2356,8 @@ function showEmpty() {
 
 // === SECTION: NEW NOTE ===
 function createNewNote(ephemeral = false) {
+  flushPending();
+  editSession++;
   activeNoteId = null;
   isNew = true;
   newNoteFilename = null;
@@ -2376,10 +2393,111 @@ function createNewNote(ephemeral = false) {
   $editor.focus();
 }
 
+// === SECTION: LOCAL DRAFTS ===
+// Every keystroke is mirrored to localStorage until the server confirms it,
+// so text typed just before the app is closed — or killed by iOS — survives:
+// the next start sends it up (restoreDrafts). One entry per note; '' is a
+// note that has not been created on the server yet.
+const DRAFTS_KEY = 'hexnotes_drafts';
+let draftsRestored = false;
+
+function readDrafts() {
+  try { return JSON.parse(localStorage.getItem(DRAFTS_KEY)) || {}; } catch { return {}; }
+}
+function writeDrafts(d) {
+  try {
+    if (Object.keys(d).length) localStorage.setItem(DRAFTS_KEY, JSON.stringify(d));
+    else localStorage.removeItem(DRAFTS_KEY);
+  } catch {}
+}
+function putDraft(content) {
+  if (!activeNoteId && !isNew) return;
+  const d = readDrafts();
+  d[isNew ? '' : activeNoteId] = {
+    content, base: activeVersion, filename: newNoteFilename,
+    ephemeral: isNew && ephemeralArmed, t: Date.now(),
+  };
+  writeDrafts(d);
+}
+// Without `content`, drops unconditionally (delete, "load theirs").
+function dropDraft(key, content) {
+  const d = readDrafts();
+  if (!d[key] || (content !== undefined && d[key].content !== content)) return;
+  delete d[key];
+  writeDrafts(d);
+}
+// A new note just got its id: what was typed meanwhile now belongs to it.
+function moveDraft(from, to, base) {
+  const d = readDrafts();
+  if (!d[from]) return;
+  d[to] = { ...d[from], base, filename: null, ephemeral: false };
+  delete d[from];
+  writeDrafts(d);
+}
+
+// Runs once, after the first note list has loaded. A draft whose text is
+// already on the server is just dropped. One for an unchanged note is saved
+// onto it; if the note changed elsewhere since (or is gone), the draft is
+// never written over it — it becomes a note of its own.
+async function restoreDrafts() {
+  const d = readDrafts();
+  let restored = 0;
+  for (const [key, dr] of Object.entries(d)) {
+    if (key === (isNew ? '' : activeNoteId) && pendingContent !== null) continue; // being typed here now
+    const done = () => {
+      const cur = readDrafts();
+      if (cur[key] && cur[key].t === dr.t) { delete cur[key]; writeDrafts(cur); }
+    };
+    if (!dr || typeof dr.content !== 'string' || !dr.content.trim()) { done(); continue; }
+    const note = key ? notes.find(n => n.id === key) : null;
+    if (note ? note.content === dr.content : notes.some(n => n.content === dr.content)) { done(); continue; }
+    try {
+      let res;
+      if (note && dr.base && note.version === dr.base) {
+        res = await apiFetch(`/api/notes/${encodeURIComponent(key)}`, {
+          method: 'PATCH', body: { content: dr.content, base_version: dr.base },
+        });
+      } else {
+        const body = { content: dr.content };
+        if (!key && dr.filename) body.filename = dr.filename;
+        if (!key && dr.ephemeral) body.ttl_hours = 48;
+        res = await apiFetch('/api/notes', { method: 'POST', body });
+      }
+      if (res.ok) { done(); restored++; }
+    } catch {}
+  }
+  if (restored) {
+    localWriteSeq++;
+    await loadNotes();
+    showErrorBar(restored === 1
+      ? 'Restored text that had not been saved last time'
+      : `Restored ${restored} unsaved texts from last time`);
+  }
+}
+
+// Leaving the app (switching away, locking the phone, swiping it closed) or
+// the note sends unsaved text at once instead of waiting out the debounce.
+// keepalive lets the request finish even if the page is torn down; the local
+// draft covers the case where even that does not make it. A save already in
+// flight is left alone — the draft keeps what it does not cover.
+function flushPending({ keepalive = false } = {}) {
+  if (pendingContent === null || isSaving || !isOnline) return;
+  if (!activeNoteId && !isNew) return;
+  clearTimeout(saveTimer);
+  // keepalive bodies are capped at 64 kB by the browser
+  save(pendingContent, { keepalive: keepalive && pendingContent.length < 60000 });
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) flushPending({ keepalive: true });
+});
+window.addEventListener('pagehide', () => flushPending({ keepalive: true }));
+
 // === SECTION: AUTOSAVE ===
 $editor.addEventListener('input', () => {
   const content = $editor.value;
   pendingContent = content;
+  putDraft(content);
+  showUnsaved();
   if (content.trim()) noteHadContent = true;
   clearTimeout(saveTimer);
 
@@ -2388,7 +2506,7 @@ $editor.addEventListener('input', () => {
   saveTimer = setTimeout(() => save(content), 1000);
 });
 
-async function save(content) {
+async function save(content, { keepalive = false } = {}) {
   if (isSaving) return;
 
   // Don't autosave empty content — trash only on blur
@@ -2401,6 +2519,7 @@ async function save(content) {
   // belonging to note A into whatever note is open when it resolves.
   const isNewSave = isNew;
   const savedId = activeNoteId;
+  const session = editSession;
 
   try {
     let res;
@@ -2408,13 +2527,14 @@ async function save(content) {
       const body = { content };
       if (newNoteFilename) body.filename = newNoteFilename;
       if (ephemeralArmed) body.ttl_hours = 48;
-      res = await apiFetch('/api/notes', { method: 'POST', body });
+      res = await apiFetch('/api/notes', { method: 'POST', body, keepalive });
     } else if (activeNoteId) {
       const body = { content };
       if (activeVersion) body.base_version = activeVersion;
       res = await apiFetch(`/api/notes/${encodeURIComponent(activeNoteId)}`, {
         method: 'PATCH',
         body,
+        keepalive,
       });
     } else {
       isSaving = false;
@@ -2422,10 +2542,12 @@ async function save(content) {
     }
 
     // Did the user move on while we were waiting?
-    const stillCurrent = isNewSave ? isNew : activeNoteId === savedId;
+    // (isNew alone is not enough: the user may have started another new note)
+    const stillCurrent = isNewSave ? isNew && session === editSession : activeNoteId === savedId;
 
     if (res.ok) {
       localWriteSeq++; // invalidate any list fetch issued before this write
+      dropDraft(isNewSave ? '' : savedId, content);
       if (isNew && stillCurrent) {
         const created = await res.json();
         activeNoteId = created.id;
@@ -2435,6 +2557,7 @@ async function save(content) {
         ephemeralArmed = false;
         activeExpiresAt = created.expires_at;
         localStorage.setItem('hexnotes_lastNote', created.id);
+        moveDraft('', created.id, created.version);
         pushNoteHash(created.id);
         $filenameDisplay.textContent = created.filename;
         updateEphemeralBadge();
@@ -2446,7 +2569,7 @@ async function save(content) {
         retryCount = 0;
         clearTimeout(retryTimer);
         hideErrorBar();
-        showSaved();
+        if (pendingContent === null) showSaved(); else showUnsaved();
         if (!isNewSave) {
           // PATCH returns the stored note — adopt its version as our new base
           try {
@@ -2518,20 +2641,36 @@ function scheduleRetry(content) {
 // explicit delete button (DELETE /api/notes/{id}, see pendingDeleteId flow).
 
 // === SECTION: SAVE INDICATOR ===
+// ● grey = typed but not on the server yet, ··· = saving, ✓ green = saved.
+// The ✓ stays (dimmed) so a glance before closing the app tells the state.
+let savedFadeTimer = null;
+function showUnsaved() {
+  clearTimeout(savedFadeTimer);
+  $saveIndicator.textContent = '●';
+  $saveIndicator.style.color = 'var(--text-muted)';
+  $saveIndicator.style.opacity = '1';
+  $saveIndicator.style.animation = 'none';
+}
+
 function showSaving() {
+  clearTimeout(savedFadeTimer);
+  $saveIndicator.style.color = 'var(--text-muted)';
   $saveIndicator.textContent = '···';
   $saveIndicator.style.opacity = '1';
   $saveIndicator.style.animation = 'pulse 1s infinite';
 }
 
 function showSaved() {
+  clearTimeout(savedFadeTimer);
   $saveIndicator.textContent = '✓';
+  $saveIndicator.style.color = 'var(--accent)';
   $saveIndicator.style.animation = 'none';
   $saveIndicator.style.opacity = '1';
-  setTimeout(() => { $saveIndicator.style.opacity = '0'; }, 2000);
+  savedFadeTimer = setTimeout(() => { $saveIndicator.style.opacity = '0.45'; }, 2000);
 }
 
 function hideSaveIndicator() {
+  clearTimeout(savedFadeTimer);
   $saveIndicator.style.opacity = '0';
   $saveIndicator.style.animation = 'none';
 }
@@ -2604,6 +2743,7 @@ $conflictBarReload.addEventListener('click', async () => {
     }
   }
   pendingContent = null;
+  if (activeNoteId) dropDraft(activeNoteId);
   clearTimeout(saveTimer);
   if (isPreviewMode) setPreviewMode(true); // re-render with the new content
   hideConflictBar();
@@ -2961,6 +3101,8 @@ function toggleTaskLine(index, checked) {
     lines[i] = lines[i].replace(TASK_LINE, '$1' + (checked ? 'x' : ' ') + '$3');
     $editor.value = lines.join('\n');
     pendingContent = $editor.value;
+    putDraft(pendingContent);
+    showUnsaved();
     noteHadContent = true;
     clearTimeout(saveTimer);
     if (isOnline) saveTimer = setTimeout(() => save($editor.value), 600);
@@ -3034,6 +3176,7 @@ async function doRename() {
         activeExpiresAt = created.expires_at;
         noteHadContent = !!created.content.trim();
         localStorage.setItem('hexnotes_lastNote', created.id);
+        moveDraft('', created.id, created.version);
         pushNoteHash(created.id);
         $filenameDisplay.textContent = created.filename;
         updateEphemeralBadge();
@@ -3132,6 +3275,7 @@ $btnConfirmYes.addEventListener('click', async () => {
   if (!pendingDeleteId) return;
   try {
     await apiFetch(`/api/notes/${encodeURIComponent(pendingDeleteId)}`, { method: 'DELETE' });
+    dropDraft(pendingDeleteId);
     notes = notes.filter(n => n.id !== pendingDeleteId);
     if (activeNoteId === pendingDeleteId) {
       activeNoteId = null;

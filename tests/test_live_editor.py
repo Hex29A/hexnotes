@@ -163,3 +163,15 @@ def test_classic_switch(server, browser):
     assert pg.evaluate("localStorage.getItem('hexnotes_editor')") == "classic"
     assert pg.locator(".cm-editor").count() == 0
     ctx.close()
+
+
+def test_new_note_takes_typing_without_a_click(page):
+    # Ctrl+N / the + button focus the editor programmatically; after the
+    # fresh state the caret must land in the content or keystrokes vanish.
+    pg, _ = page
+    pg.evaluate("createNewNote()")
+    pg.keyboard.type("abc")
+    assert pg.evaluate("$editor.value") == "abc"
+    time.sleep(0.5)
+    pg.keyboard.type("d")
+    assert pg.evaluate("$editor.value") == "abcd"

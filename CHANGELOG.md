@@ -14,6 +14,55 @@ The whole project — changelog, commits, code comments, tests and UI — is
 written in English (entries before 1.22 and between 1.33 and 1.40 were
 originally in Swedish and have been translated).
 
+## 1.43 (2026-10-07)
+
+> **⚠ Behaviour change — the editor works differently.** Notes no longer
+> switch between a read-only preview and a raw-text editor. They open
+> rendered **and editable**: you type straight into the formatted note, and
+> the markdown marks (`**`, `#`, `[]()` …) only appear on the element the
+> caret is in. The file on disk is unchanged plain markdown. `Ctrl+M` (or
+> the `</>` button) now toggles to the **raw source**, not to a preview.
+> `?editor=classic` in the URL brings back the old textarea + preview on
+> that device (remembered; `?editor=live` undoes it).
+
+- **Live-preview editor (CodeMirror 6).** Headings, bold/italic/strike,
+  inline code, links, quotes, bullets and code blocks render in place; task
+  checkboxes are clickable; `[[wiki links]]` navigate on click (missing ones
+  red/dashed); links open in a new tab. All formatting shortcuts, list
+  continuation, `Tab`, `[[`/`#` autocomplete, find and conflict handling work
+  in both modes — the textarea stays the model the rest of the app uses.
+  Not yet in live mode: the "Linked from" backlinks footer, and tables and
+  images, which show as raw markdown.
+- **CodeMirror is vendored as one prebuilt file**
+  (`static/vendor/codemirror-6.36.8.min.js`, ~300 kB, ~97 kB gzipped), built
+  by `scripts/cm-bundle/build.sh` in a throwaway Node container. The app
+  itself still has no build step. If the file fails to load, the app falls
+  back to the classic editor.
+- **New note starts in the name field.** Type a name and press `Enter`
+  (or `Tab`/`↓`) to go to the text; an empty name — or tapping straight into
+  the text — gives the usual date-and-slug filename. (Reverses 1.23, which
+  put the caret in the editor.)
+- **Quick notes are never lost.** Every keystroke is mirrored to
+  `localStorage` until the server confirms it, and the next start sends up
+  anything the server lacks — onto the note if it is unchanged since, or else
+  as a note of its own, so nothing is written over. Hiding the page
+  (switching app, locking the phone, swiping the app closed) and switching
+  notes save pending text at once; the hide-save uses `keepalive` so it can
+  outlive the page. Before, text typed less than a second before closing
+  the app could be lost, and so could text typed just before opening
+  another note.
+- **Save state is always visible**, top-right of the note (above the phone
+  keyboard): grey dot = not on the server yet, pulsing = saving, green check
+  = saved (stays, dimmed).
+- **Edits from another device show up within ~5 s.** The open note is now
+  checked every 5 seconds while visible (one small request), instead of
+  waiting for the 30-second list poll.
+- Fixed: a new note whose create request was still in flight could adopt a
+  second new note started meanwhile.
+- New browser tests `tests/test_live_editor.py` and `tests/test_drafts.py`;
+  `tests/test_format_shortcuts.py` now pins the classic editor, since it
+  drives the textarea directly.
+
 ## 1.42 (2026-10-07)
 
 - **Formatting shortcuts in the editor.** `Ctrl+B` bold, `Ctrl+I` italic,

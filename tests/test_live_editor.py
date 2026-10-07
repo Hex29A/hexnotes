@@ -170,8 +170,30 @@ def test_new_note_takes_typing_without_a_click(page):
     # fresh state the caret must land in the content or keystrokes vanish.
     pg, _ = page
     pg.evaluate("createNewNote()")
+    pg.keyboard.press("Enter")          # past the name field
     pg.keyboard.type("abc")
     assert pg.evaluate("$editor.value") == "abc"
     time.sleep(0.5)
     pg.keyboard.type("d")
     assert pg.evaluate("$editor.value") == "abcd"
+
+
+def test_new_note_name_first_then_enter_to_write(page):
+    pg, _ = page
+    pg.evaluate("createNewNote()")
+    assert pg.evaluate("document.activeElement === $filenameInput && $filenameInput.value === ''")
+    pg.keyboard.type("groceries")
+    pg.keyboard.press("Enter")
+    _wait(pg, "!isNew && activeNoteId === 'groceries' && editorHasFocus()")
+    pg.keyboard.type("milk")
+    _wait(pg, "pendingContent === null && !isSaving")
+    assert pg.evaluate("$editor.value") == "milk"
+
+
+def test_new_note_empty_name_gets_a_date(page):
+    pg, _ = page
+    pg.evaluate("createNewNote()")
+    pg.keyboard.press("Enter")
+    assert pg.evaluate("editorHasFocus() && isNew")
+    pg.keyboard.type("quick")
+    _wait(pg, "!isNew && /^\\d{4}-\\d{2}-\\d{2}/.test(activeNoteId)")

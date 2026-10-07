@@ -17,7 +17,7 @@ tests/
 ```
 
 > **Note:** This document is the original test specification. The suite has
-> grown since then (151 tests) — the `tests/` directory is the source of truth,
+> grown since then (237 tests) — the `tests/` directory is the source of truth,
 > and the README describes what each file covers.
 
 Run locally inside Docker:

@@ -27,7 +27,7 @@ mimetypes.add_type("font/woff2", ".woff2")
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-APP_VERSION = "1.42"  # bump minor for features, major for breaking changes — see CHANGELOG.md
+APP_VERSION = "1.43"  # bump minor for features, major for breaking changes — see CHANGELOG.md
 
 # Upper bound on GET /api/notes?limit=. The frontend asks for 200, so the
 # cap sits above that rather than on it, leaving room to raise the client
@@ -601,9 +601,9 @@ Make it yours: fill it with [[wiki-links]] to your important notes.
 
 ## Quick start
 
-- **+ New** (or `Ctrl+N`) creates a note. `#tags` anywhere in the text become sidebar groups.
+- **+ New** (or `Ctrl+N`) creates a note: type a name and press Enter, or just Enter for a dated one. `#tags` anywhere in the text become sidebar groups.
 - **📅** (or `Ctrl+D`) opens today's daily note.
-- Notes open rendered — **double-click** (or `Ctrl+M`) to edit.
+- Notes open rendered and you write straight into them; the markdown shows where the caret is. `Ctrl+M` shows the raw source.
 - Type `[[` in the editor to link to another note, with autocomplete.
 - Task lists are live in the rendered view:
   - [ ] try ticking this checkbox

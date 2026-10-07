@@ -2389,8 +2389,10 @@ function createNewNote(ephemeral = false) {
 
   if (isMobile) hideMobileList();
 
-  // Use the normal date-and-slug filename on first save; writing begins now.
-  $editor.focus();
+  // The caret starts in the name field: type a name, or press Enter (Tab,
+  // ↓) to go straight to the text. Left empty — or tapping into the text —
+  // gives the usual date-and-slug filename on first save.
+  startRename(true);
 }
 
 // === SECTION: LOCAL DRAFTS ===
@@ -3113,10 +3115,11 @@ function toggleTaskLine(index, checked) {
 $btnPreview.addEventListener('click', togglePreview);
 
 // === SECTION: RENAME ===
-function startRename() {
+function startRename(fresh = false) {
   isRenaming = true;
   const current = $filenameDisplay.textContent;
-  $filenameInput.value = current.replace(/\.md$/, '');
+  $filenameInput.value = fresh ? '' : current.replace(/\.md$/, '');
+  $filenameInput.placeholder = fresh ? 'Name – Enter to write, empty = date' : '';
   $filenameDisplay.style.display = 'none';
   $filenameEditBtn.style.display = 'none';
   $filenameInput.style.display = 'block';
@@ -3249,7 +3252,9 @@ $filenamePinBtn.addEventListener('click', async () => {
   }
 });
 $filenameInput.addEventListener('keydown', e => {
-  if (e.key === 'Enter') { e.preventDefault(); doRename(); }
+  if (e.key === 'Enter' || ((e.key === 'Tab' || e.key === 'ArrowDown') && isNew)) {
+    e.preventDefault(); doRename();
+  }
   if (e.key === 'Escape') { cancelRename(); if (isNew) $editor.focus(); }
 });
 $filenameInput.addEventListener('blur', () => {

@@ -1,13 +1,14 @@
 """Regression checks for new-note focus and ephemeral confirmation UI."""
 
 
-def test_new_note_focuses_editor_instead_of_filename_input(client):
+def test_new_note_starts_in_an_empty_name_field(client):
+    # 1.43: the caret starts in the name field (empty, Enter goes on to the
+    # text, empty = date filename). 1.23 had put it in the editor.
     html = client.get("/").text
     start = html.index("function createNewNote")
     end = html.index("// === SECTION: AUTOSAVE ===", start)
     create_note = html[start:end]
-    assert "$editor.focus();" in create_note
-    assert "startRename();" not in create_note
+    assert "startRename(true);" in create_note
 
 
 def test_editor_header_has_ephemeral_badge(client):

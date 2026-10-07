@@ -7,6 +7,8 @@ Self-hosted, lightweight note-taking app. Notes are stored as plain `.md` files 
 Notes can be created as **ephemeral** with a TTL (`POST /api/notes` body: `"ttl_hours": 48`) — they are auto-moved to trash when the TTL expires.
 Live ephemeral notes get their own ⏳ Ephemeral section at the top of the sidebar (above Pinned), with yellow-accented cards and a countdown badge that updates every minute.
 
+> **Since 1.43 notes are edited in rendered form** (Obsidian-style live preview): you type straight into the formatted note and the markdown only shows where the caret is. `Ctrl+M` shows the raw source. See [Editing](#editing-live-preview--wiki-links) and the [changelog](CHANGELOG.md).
+
 Current version: see `APP_VERSION` in `backend/main.py`, exposed via `GET /health` and shown in the topbar. Release notes in [CHANGELOG.md](CHANGELOG.md).
 
 ---
@@ -416,6 +418,9 @@ The frontend keeps notes up to date via multiple mechanisms:
 | Trigger | Behavior |
 |---------|----------|
 | Typing stops (1s) | Autosave current note |
+| Every keystroke | Mirrored to a local draft until the server has it (see below) |
+| App hidden / note switched | Save pending text at once (`keepalive` when hiding) |
+| Every 5 seconds (visible tab) | Check the **open note** for edits made elsewhere |
 | Switch back to tab/app | Reload note list **+ open note** |
 | Browser window regains focus | Reload note list **+ open note** |
 | Every 30 seconds (visible tab) | Background poll of list **+ open note** |
@@ -439,13 +444,20 @@ notes created the same day. This is a frontend ordering only — `GET /api/notes
 returns notes sorted by `updated_at`.
 
 **The open note updates too**, not just the sidebar — so a note edited by an AI
-agent or another device refreshes under you within ~30s. This reuses the list
-response, which already contains full content, so it costs no extra requests.
+agent or another device refreshes under you within ~5s: the open note is
+checked on its own every 5 seconds, and the 30-second list poll covers the rest.
 
 Two rules keep it safe:
 
 - An editor with **unsaved changes is never overwritten** — your typing always wins, and the update is deferred
 - Caret and scroll position survive the swap, so a refresh mid-read doesn't lose your place
+
+**Nothing typed is lost to a closed app.** Every keystroke is mirrored to
+`localStorage` (`hexnotes_drafts`) until the server confirms it. If the app is
+killed before that, the next start sends the draft up: onto the note if it is
+unchanged since the draft was typed, otherwise as a separate note, so it never
+overwrites anything. A grey dot top-right of the note means "not on the server
+yet"; a green check means saved.
 
 If both sides changed, the save is rejected (see `base_version` above) and a bar
 offers **Load theirs** or **Keep mine**. Choosing *Keep mine* still snapshots
@@ -461,7 +473,7 @@ their version to `.history/` first, so nothing is lost either way.
 | `Ctrl+P` | Command palette — fuzzy-search and open any note |
 | `Ctrl+F` | Find in current note (match navigation with ↑↓, Shift+Enter/Enter) |
 | `Ctrl+Shift+B` | Toggle sidebar (also `Ctrl+\`, and plain `Ctrl+B` when the editor does not have focus) |
-| `Ctrl+M` | Toggle Markdown preview |
+| `Ctrl+M` | Toggle between the live (rendered, editable) view and the raw source |
 | `Ctrl+D` | Today's note — opens (or creates) `YYYY-MM-DD.md` for today |
 | `Alt+←` | Back to the previously viewed note |
 | `Ctrl+Delete` | Delete active note (confirmation dialog) |
@@ -516,13 +528,19 @@ On a **fresh install** (completely empty notes directory) a starter `home.md` is
 
 ---
 
-## Markdown Preview & Wiki Links
+## Editing (Live Preview) & Wiki Links
 
-Notes with content **open in preview mode** — the rendered Markdown is what you see first. Empty notes and new notes open straight in the editor.
+**Notes open rendered and editable** (since 1.43, Obsidian-style): headings, emphasis, code, links, quotes, lists and checkboxes are shown formatted, and you type straight into them. The markdown marks appear only on the element the caret is in — the heading line, the bold word, the link — so what you type is always exactly what is saved. The note on disk stays plain markdown.
 
-To edit, either:
-- `Ctrl+M` or the 👁 button — toggles between preview and editor
-- **Double-click** (desktop) or **double-tap** (mobile) anywhere in the rendered text — switches to the editor (links are exempt; they navigate)
+- `Ctrl+M` or the `</>` button — switches to the **raw source** (a plain textarea) and back
+- Formatting shortcuts, list continuation and autocomplete work the same in both
+- Click a link to open it, a `[[wiki link]]` to go to that note, a checkbox to tick it
+- Not yet rendered in live mode: tables and images (shown as markdown), and the backlinks footer
+- `?editor=classic` in the URL switches that device back to the pre-1.43 editor (textarea + read-only preview, double-click to edit); `?editor=live` returns to live preview. The choice is remembered per device
+
+**New notes start in the name field:** type a name and press `Enter` (or `Tab`/`↓`) to go to the text, or press `Enter` right away for the usual date-and-slug filename.
+
+The editor is CodeMirror 6, vendored as one prebuilt file (`static/vendor/codemirror-*.min.js`). Rebuild it with `scripts/cm-bundle/build.sh` (runs in a throwaway Node container; versions pinned in `scripts/cm-bundle/package.json`). The app itself has no build step, and falls back to the classic editor if the file fails to load.
 
 `[[note-name]]` in note text renders as a clickable link in the preview (matched case-insensitively against the note id, with or without `.md`). Clicking it opens that note and stays in preview mode, so you can browse linked notes like a wiki. Links to notes that don't exist are shown red/dashed. Implemented as a `marked` inline extension, so wiki links inside code blocks are left alone.
 
@@ -568,7 +586,7 @@ Every opened note gets a hash URL (`#note-id`) pushed to browser history:
 docker compose run --rm hexnotes pytest tests/ -v --tb=short
 ```
 
-220 tests (69 of them in the browser test, which runs locally only — see below):
+237 tests (86 of them in browser tests, which run locally only — see below):
 
 | File | Covers |
 |------|--------|
@@ -582,9 +600,11 @@ docker compose run --rm hexnotes pytest tests/ -v --tb=short
 | `tests/test_rename_ttl.py` | TTL survives rename |
 | `tests/test_fab.py` | Mobile FAB long-press ephemeral flow |
 | `tests/test_list_ui.py` | Sidebar list errors, created-date ordering, All notes with date headings |
-| `tests/test_format_shortcuts.py` | Formatting shortcuts in a real browser: the transforms case by case, then the keys in the running app (undo, autosave, sidebar shortcut, AltGr, preview) |
+| `tests/test_format_shortcuts.py` | Formatting shortcuts in a real browser: the transforms case by case, then the keys in the running app (undo, autosave, sidebar shortcut, AltGr, preview) — pinned to the classic editor |
+| `tests/test_live_editor.py` | Live-preview editor in a real browser: hidden marks, checkboxes, autosave, format keys, list continuation, source toggle, `[[` autocomplete and navigation, undo per note, new-note name field, `?editor=classic` |
+| `tests/test_drafts.py` | Unsaved text survives a closed app: local drafts, save on hide, restore onto an unchanged note or as a separate note, back-to-back new notes |
 
-`tests/test_format_shortcuts.py` drives Chromium through Playwright, which the Docker image does not ship, so the module skips there. Run it locally:
+The browser tests (`test_format_shortcuts.py`, `test_live_editor.py`, `test_drafts.py`) drive Chromium through Playwright, which the Docker image does not ship, so they skip there. Run it locally:
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt playwright
@@ -612,7 +632,7 @@ Also keep in mind that filesystem backups of `notes/` contain copies of everythi
 - All tokens have full access (there are no scopes) — trash and history sit at the same trust level as the notes themselves
 - Token and admin-secret comparisons are constant-time; `tokens.json` is written mode `0600`
 - Rendered markdown is sanitized with DOMPurify, and every response carries a Content-Security-Policy. `connect-src 'self'` means even a successful XSS could not send your token or notes to another host
-- `marked` and `DOMPurify` are pinned and served from `static/vendor/` rather than a CDN — a CDN with the power to swap out the sanitizer could read the token straight out of `localStorage`
+- `marked`, `DOMPurify` and CodeMirror are pinned and served from `static/vendor/` rather than a CDN — a CDN with the power to swap out the sanitizer could read the token straight out of `localStorage`
 
 **Known exposure, accepted for a single-user private deployment:**
 - The API token is stored in `localStorage`, so any XSS that gets past DOMPurify and the CSP can read it

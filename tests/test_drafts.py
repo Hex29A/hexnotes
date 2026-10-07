@@ -122,6 +122,7 @@ def test_draft_already_on_server_is_just_dropped(server, browser, notes):
 def test_new_note_then_new_again_keeps_both_apart(server, browser, notes):
     ctx, pg, errors = _open(server, browser, "home")
     pg.evaluate("createNewNote()")
+    pg.keyboard.press("Enter")          # past the name field
     pg.keyboard.type("first quick thought")
     pg.evaluate("createNewNote()")          # within the debounce
     _wait(pg, "!isSaving")

@@ -1941,6 +1941,21 @@ async function pollNotes() {
 }
 
 setInterval(pollNotes, 30000);
+
+// The open note is also checked every 5 seconds while visible, so an edit
+// made on another device shows up within seconds instead of waiting for the
+// list poll. One small request; skipped while typing or saving.
+async function pollActiveNote() {
+  if (document.hidden || !apiToken || !isOnline || !activeNoteId || isNew) return;
+  if (pendingContent !== null || isSaving) return;
+  const id = activeNoteId, seq = localWriteSeq;
+  try {
+    const res = await apiFetch(`/api/notes/${encodeURIComponent(id)}`);
+    if (!res.ok || id !== activeNoteId) return;
+    syncActiveNoteFrom([await res.json()], seq);
+  } catch {}
+}
+setInterval(pollActiveNote, 5000);
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) pollNotes();
 });

@@ -1870,12 +1870,15 @@ function renderTagsSection(unpinned, allTags) {
   $notesList.appendChild(body);
 }
 
+// Counts calendar days, not 24-hour spans, so the card agrees with the date
+// headings in All notes: a note edited at 18:00 yesterday says "yesterday"
+// the next morning, not "today".
 function relativeDate(iso) {
   if (!iso) return '';
   const d = new Date(iso);
   const now = new Date();
-  const diffMs = now - d;
-  const diffDays = Math.floor(diffMs / 86400000);
+  const startOfDay = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diffDays = Math.round((startOfDay(now) - startOfDay(d)) / 86400000);
   if (diffDays === 0) return 'today';
   if (diffDays === 1) return 'yesterday';
   if (diffDays < 7) return `${diffDays} days ago`;

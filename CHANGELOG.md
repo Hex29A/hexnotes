@@ -9,6 +9,13 @@ Service workerns cachenamn (`hexnotes-vN` i `static/sw.js`) är **inte** kopplat
 till appversionen — det bumpas bara när cachestrategin i sig ändras. Sedan 1.4
 är app-skalet network-first, så deployer når klienter utan cache-bump.
 
+## 1.40 (2026-10-07)
+
+- **Datumet på notkortet räknar kalenderdagar** i stället för 24-timmarsspann.
+  En not ändrad 18:00 igår stod som "today" under rubriken Yesterday i All
+  notes; nu stämmer kort och rubrik överens (även över sommartidsskiften).
+- Ny skärmdump i `docs/screenshot.png` med påhittade demonoter.
+
 ## 1.39 (2026-10-07)
 
 - **Inbox heter nu All notes och innehåller alla ofästa noter**, taggade som

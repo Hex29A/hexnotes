@@ -56,3 +56,11 @@ def test_all_notes_sorted_by_last_edit_under_date_headings():
     buckets = _function("dateBucket")
     for label in ("'Today'", "'Yesterday'", "'Last 7 days'", "'Older'"):
         assert label in buckets
+
+
+def test_card_date_counts_calendar_days():
+    """Kortet sa "today" om en not ändrad 18:00 igår, under rubriken
+    Yesterday. Räkna kalenderdagar som dateBucket gör."""
+    body = _function("relativeDate")
+    assert "startOfDay(now) - startOfDay(d)" in body
+    assert "now - d" not in body

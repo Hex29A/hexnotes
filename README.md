@@ -2,7 +2,7 @@
 
 Self-hosted, lightweight note-taking app. Notes are stored as plain `.md` files on disk. No database. Exposes a REST API for browser, mobile (PWA), and AI-agent access.
 
-![HexNotes — sidebar with ephemeral, pinned and tagged notes; a note open with a wiki link, an external link and task checkboxes](docs/screenshot.png)
+![HexNotes — sidebar with an ephemeral note, pinned notes and All notes under date headings; a note open with a wiki link, an external link and task checkboxes](docs/screenshot.png)
 
 Notes can be created as **ephemeral** with a TTL (`POST /api/notes` body: `"ttl_hours": 48`) — they are auto-moved to trash when the TTL expires.
 Live ephemeral notes get their own ⏳ Ephemeral section at the top of the sidebar (above Pinned), with yellow-accented cards and a countdown badge that updates every minute.
@@ -548,7 +548,7 @@ Every opened note gets a hash URL (`#note-id`) pushed to browser history:
 docker compose run --rm hexnotes pytest tests/ -v --tb=short
 ```
 
-150 tests:
+151 tests:
 
 | File | Covers |
 |------|--------|

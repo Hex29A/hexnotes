@@ -14,6 +14,21 @@ The whole project — changelog, commits, code comments, tests and UI — is
 written in English (entries before 1.22 and between 1.33 and 1.40 were
 originally in Swedish and have been translated).
 
+## 1.42 (2026-10-07)
+
+- **Formatting shortcuts in the editor.** `Ctrl+B` bold, `Ctrl+I` italic,
+  `Ctrl+Shift+X` strikethrough, `Ctrl+E` inline code, `Ctrl+K` link,
+  `Ctrl+Shift+7` bullet list and `Ctrl+Enter` to tick a checkbox (or start
+  one). The wrapping shortcuts toggle, work on the word under the caret when
+  nothing is selected, wrap a multi-line selection line by line with list
+  markers kept outside, and are one `Ctrl+Z` step each (written through
+  `execCommand('insertText')`, so the browser's undo stack survives).
+- **The sidebar moved to `Ctrl+Shift+B`**, since `Ctrl+B` is now bold.
+  `Ctrl+\` works too, and plain `Ctrl+B` still toggles the sidebar when the
+  editor does not have focus (in preview, for example).
+- New browser test `tests/test_format_shortcuts.py` (Playwright + Chromium,
+  69 tests), skipped in the Docker image, which has no browser.
+
 ## 1.41 (2026-10-07)
 
 - **Last Swedish UI strings translated.** The ephemeral countdown badge said

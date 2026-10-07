@@ -434,7 +434,9 @@ Directly under the filename bar:
 |----------|--------|
 | `Ctrl+N` | New note |
 | `Ctrl+F` | Focus the search field |
-| `Ctrl+B` | Toggle sidebar |
+| `Ctrl+Shift+B` | Toggle sidebar (plain `Ctrl+B` outside the editor; bold inside it since 1.42) |
+| `Ctrl+B` / `Ctrl+I` / `Ctrl+Shift+X` / `Ctrl+E` | Bold / italic / strikethrough / inline code in the editor (1.42, see README) |
+| `Ctrl+K` / `Ctrl+Shift+7` / `Ctrl+Enter` | Link / bullet list / tick checkbox in the editor (1.42) |
 | `Ctrl+Delete` | Delete the active note (confirmation dialog) |
 | `Escape` | Clear search |
 

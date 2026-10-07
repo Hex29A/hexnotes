@@ -460,13 +460,33 @@ their version to `.history/` first, so nothing is lost either way.
 | `Ctrl+N` | New note |
 | `Ctrl+P` | Command palette — fuzzy-search and open any note |
 | `Ctrl+F` | Find in current note (match navigation with ↑↓, Shift+Enter/Enter) |
-| `Ctrl+B` | Toggle sidebar |
+| `Ctrl+Shift+B` | Toggle sidebar (also `Ctrl+\`, and plain `Ctrl+B` when the editor does not have focus) |
 | `Ctrl+M` | Toggle Markdown preview |
 | `Ctrl+D` | Today's note — opens (or creates) `YYYY-MM-DD.md` for today |
 | `Alt+←` | Back to the previously viewed note |
 | `Ctrl+Delete` | Delete active note (confirmation dialog) |
 | `Escape` | Close palette / find bar / clear search |
 | `Tab` | Insert 2 spaces in editor |
+
+### Formatting (in the editor)
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+B` | **Bold** `**text**` |
+| `Ctrl+I` | *Italic* `*text*` |
+| `Ctrl+Shift+X` | ~~Strikethrough~~ `~~text~~` |
+| `Ctrl+E` | Inline code `` `text` `` |
+| `Ctrl+K` | Link: selected text becomes `[text](url)` with `url` selected to type or paste over; a selected URL becomes `[](URL)` |
+| `Ctrl+Shift+7` | Bullet list on/off for the selected lines (`Ctrl+Shift+/` on a Swedish keyboard is the same key) |
+| `Ctrl+Enter` | Tick/untick the checkbox on the line (all selected lines); a line without one becomes a `- [ ]` item |
+
+`Cmd` works in place of `Ctrl` on a Mac. How the wrapping shortcuts behave:
+
+- **They toggle.** Pressing the same shortcut again removes the markers, whether they sit just outside the selection or were selected along with the text. Bold and italic share `*` and stay independent: `Ctrl+I` on `**bold**` gives `***bold***`.
+- **No selection:** the word under the caret is wrapped (the caret stays put). Between words an empty pair is inserted with the caret inside, so `Ctrl+B`, type, `Ctrl+B` writes bold text and steps out of it; `Ctrl+B` on an empty pair removes it.
+- **Several lines** are wrapped one line at a time, since Markdown emphasis cannot cross a line break. List, checkbox, heading and quote markers stay outside: `- item` → `- **item**`.
+- **Undo works:** each shortcut is a single `Ctrl+Z` step, and the change autosaves like typing.
+- Shortcuts with `Alt` are left alone, so AltGr characters (`{`, `[`, `\` …) still type normally.
 
 ---
 
@@ -548,7 +568,7 @@ Every opened note gets a hash URL (`#note-id`) pushed to browser history:
 docker compose run --rm hexnotes pytest tests/ -v --tb=short
 ```
 
-151 tests:
+220 tests (69 of them in the browser test, which runs locally only — see below):
 
 | File | Covers |
 |------|--------|
@@ -562,8 +582,18 @@ docker compose run --rm hexnotes pytest tests/ -v --tb=short
 | `tests/test_rename_ttl.py` | TTL survives rename |
 | `tests/test_fab.py` | Mobile FAB long-press ephemeral flow |
 | `tests/test_list_ui.py` | Sidebar list errors, created-date ordering, All notes with date headings |
+| `tests/test_format_shortcuts.py` | Formatting shortcuts in a real browser: the transforms case by case, then the keys in the running app (undo, autosave, sidebar shortcut, AltGr, preview) |
 
-Frontend features (sidebar, palette, find bar, preview, dialogs) are pure client-side and do not have automated tests.
+`tests/test_format_shortcuts.py` drives Chromium through Playwright, which the Docker image does not ship, so the module skips there. Run it locally:
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt playwright
+PYTHONPATH=. .venv/bin/pytest tests/test_format_shortcuts.py -v
+```
+
+It uses Playwright's own Chromium if installed (`.venv/bin/playwright install chromium`) and falls back to `/usr/bin/google-chrome`.
+
+Other frontend features (palette, find bar, preview, dialogs) do not have automated browser tests.
 
 ---
 

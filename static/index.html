@@ -1186,7 +1186,7 @@ mark {
   <!-- Topbar -->
   <div id="topbar">
     <button id="btn-back" title="Back">←</button>
-    <button id="btn-menu" title="Toggle sidebar">☰</button>
+    <button id="btn-menu" title="Toggle sidebar (Ctrl+Shift+B)">☰</button>
     <span id="topbar-title">HexNotes <span id="app-version"></span></span>
     <div id="search-wrap">
       <input type="text" id="search-input" placeholder="Search..." spellcheck="false">
@@ -3066,8 +3066,14 @@ $btnSearchClear.addEventListener('click', () => {
   loadNotes();
 });
 
-// === SECTION: TAB HANDLING + LIST AUTO-CONTINUE ===
+// === SECTION: FORMATTING KEYS, TAB HANDLING + LIST AUTO-CONTINUE ===
 $editor.addEventListener('keydown', e => {
+  const fmt = formatForKey(e);
+  if (fmt) {
+    e.preventDefault();
+    applyEditorEdit(fmt($editor.value, $editor.selectionStart, $editor.selectionEnd));
+    return;
+  }
   if (e.key === 'Tab') {
     e.preventDefault();
     const start = $editor.selectionStart;
@@ -3123,6 +3129,234 @@ function insertChecklist() {
 }
 document.getElementById('filename-checklist-btn').addEventListener('click', insertChecklist);
 
+// === SECTION: FORMATTING SHORTCUTS ===
+// Markdown formatting from the keyboard (Ctrl+B/I/E/K, Ctrl+Shift+X,
+// Ctrl+Shift+7, Ctrl+Enter). The md* transforms are pure functions of
+// (text, selectionStart, selectionEnd) that return { text, start, end };
+// applyEditorEdit writes only the changed span through
+// execCommand('insertText') so Ctrl+Z still undoes the formatting.
+
+const MD_WORD_CHAR = /[\p{L}\p{N}_]/u;
+// List, checkbox, numbered, heading and quote markers at the start of a line.
+// Wrapping a whole selected line skips them: "- item" → "- **item**".
+const MD_LINE_PREFIX = /^\s*(?:(?:[-*+]\s+\[[ xX]\]|[-*+]|\d+[.)]|#{1,6}|>)\s+)*/;
+const MD_CHECKBOX = /^(\s*[-*+]\s+\[)([ xX])(\])/;
+const MD_BULLET = /^(\s*)[-*+]\s+(?!\[[ xX]\])/;
+const MD_ANY_ITEM = /^(\s*)(?:[-*+]\s+\[[ xX]\]|[-*+]|\d+[.)])\s+/;
+
+function mdRunBefore(text, pos, ch) { let n = 0; while (pos - n > 0 && text[pos - n - 1] === ch) n++; return n; }
+function mdRunAfter(text, pos, ch) { let n = 0; while (pos + n < text.length && text[pos + n] === ch) n++; return n; }
+
+// Do marker runs of these lengths on each side wrap the span in `marker`?
+// '*' and '**' share a character: a run of 1 or 3 carries italics, 2 or 3 bold.
+function mdRunsWrap(left, right, marker) {
+  if (marker === '*') return left % 2 === 1 && right % 2 === 1;
+  return left >= marker.length && right >= marker.length;
+}
+
+// The word around pos; a hyphen or apostrophe counts when it sits inside one.
+function mdWordAt(text, pos) {
+  const isWord = (i) => i >= 0 && i < text.length && (MD_WORD_CHAR.test(text[i]) ||
+    ("-'’".includes(text[i]) && MD_WORD_CHAR.test(text[i - 1] || '') && MD_WORD_CHAR.test(text[i + 1] || '')));
+  let s = pos, e = pos;
+  while (isWord(s - 1)) s--;
+  while (isWord(e)) e++;
+  return [s, e];
+}
+
+// Trim a span to its content, then widen it over any `marker` characters
+// touching it on either side, whether they were selected or not ("**word**",
+// "**«word»**" and a line ending in "word**" all read the same). l and r are
+// the marker runs at each edge; wrapped says whether they carry `marker`.
+function mdSpan(text, s, e, marker) {
+  while (s < e && /\s/.test(text[s])) s++;
+  while (e > s && /\s/.test(text[e - 1])) e--;
+  const ch = marker[0];
+  s -= mdRunBefore(text, s, ch);
+  e += mdRunAfter(text, e, ch);
+  const l = mdRunAfter(text, s, ch), r = mdRunBefore(text, e, ch);
+  return { s, e, l, r, wrapped: l + r < e - s && mdRunsWrap(l, r, marker) };
+}
+
+// Edits are pure inserts { at, ins } or pure deletes { at, del }. stickRight
+// moves a position past text inserted exactly at it.
+function mdMapPos(edits, p, stickRight) {
+  let d = 0;
+  for (const ed of edits) {
+    if (ed.del ? ed.at + ed.del <= p : (stickRight ? ed.at <= p : ed.at < p)) d += (ed.ins || '').length - (ed.del || 0);
+  }
+  return p + d;
+}
+function mdApplyEdits(text, edits) {
+  for (const ed of [...edits].sort((a, b) => b.at - a.at)) {
+    text = text.slice(0, ed.at) + (ed.ins || '') + text.slice(ed.at + (ed.del || 0));
+  }
+  return text;
+}
+
+// Toggle `marker` (** * ~~ `) around the selection, one span per line since
+// Markdown emphasis cannot cross a line break. If every line is already
+// wrapped the markers come off; otherwise the unwrapped lines get them.
+// The selection ends up on the content, so pressing again toggles back.
+function mdToggleWrap(text, start, end, marker) {
+  if (start === end) return mdToggleWrapCaret(text, start, marker);
+  const m = marker.length, spans = [];
+  let ls = text.lastIndexOf('\n', start - 1) + 1;
+  while (ls <= end) {
+    let le = text.indexOf('\n', ls); if (le === -1) le = text.length;
+    const content = ls + text.slice(ls, le).match(MD_LINE_PREFIX)[0].length;
+    const segS = Math.max(start, ls), segE = Math.min(end, le);
+    const sp = mdSpan(text, segS < content ? Math.min(content, segE) : segS, segE, marker);
+    if (sp.s < sp.e) spans.push(sp);
+    ls = le + 1;
+  }
+  if (!spans.length) return null;
+  const unwrap = spans.every(sp => sp.wrapped);
+  const edits = [];
+  spans.forEach((sp) => {
+    // Unwrapping takes the innermost markers, so "***x***" keeps the other one.
+    if (unwrap) edits.push({ at: sp.s + sp.l - m, del: m }, { at: sp.e - sp.r, del: m });
+    else if (!sp.wrapped) edits.push({ at: sp.s, ins: marker }, { at: sp.e, ins: marker });
+  });
+  // Select the content inside all the markers of the first and last line.
+  const first = spans[0], last = spans[spans.length - 1];
+  return {
+    text: mdApplyEdits(text, edits),
+    start: mdMapPos(edits, first.s + first.l, true),
+    end: mdMapPos(edits, last.e - last.r, false),
+  };
+}
+
+// No selection: inside a word, toggle the word and keep the caret where it
+// was; at the end of a wrapped word, step over the closing marker (so
+// Ctrl+B, type, Ctrl+B leaves bold); in an empty pair, remove the pair;
+// elsewhere insert an empty pair with the caret in the middle.
+function mdToggleWrapCaret(text, pos, marker) {
+  const ch = marker[0], m = marker.length;
+  const [ws, we] = mdWordAt(text, pos);
+  if (ws === we) {
+    if (text.slice(pos - m, pos) === marker && text.slice(pos, pos + m) === marker &&
+        mdRunsWrap(mdRunBefore(text, pos, ch), mdRunAfter(text, pos, ch), marker)) {
+      return { text: text.slice(0, pos - m) + text.slice(pos + m), start: pos - m, end: pos - m };
+    }
+    return { text: text.slice(0, pos) + marker + marker + text.slice(pos), start: pos + m, end: pos + m };
+  }
+  if (we === pos && text.slice(pos, pos + m) === marker &&
+      mdRunsWrap(mdRunBefore(text, ws, ch), mdRunAfter(text, pos, ch), marker)) {
+    return { text, start: pos + m, end: pos + m };
+  }
+  const r = mdToggleWrap(text, ws, we, marker);
+  const p = r.start + (pos - ws);
+  return { text: r.text, start: p, end: p };
+}
+
+// Ctrl+K: selected text → [text](url) with "url" selected to type or paste
+// over; a selected URL → [](URL) with the caret in the brackets.
+function mdLink(text, start, end) {
+  let s = start, e = end;
+  if (s === e) [s, e] = mdWordAt(text, s);
+  while (s < e && /\s/.test(text[s])) s++;
+  while (e > s && /\s/.test(text[e - 1])) e--;
+  const sel = text.slice(s, e), out = (ins, a, b) => ({ text: text.slice(0, s) + ins + text.slice(e), start: s + a, end: s + b });
+  if (/^(https?:\/\/|www\.)\S+$/i.test(sel)) return out('[](' + sel + ')', 1, 1);
+  if (sel) return out('[' + sel + '](url)', sel.length + 3, sel.length + 6);
+  return out('[](url)', 1, 1);
+}
+
+// Run fn over every line the selection touches (a selection ending right
+// after a newline leaves the next line alone). A caret moves with its line's
+// change; a selection ends up on the whole block.
+function mdMapLines(text, start, end, fn) {
+  const ls = text.lastIndexOf('\n', start - 1) + 1;
+  let le = (end > start && text[end - 1] === '\n') ? end - 1 : text.indexOf('\n', end);
+  if (le === -1 || le < ls) le = Math.max(ls, le === -1 ? text.length : le);
+  const oldLines = text.slice(ls, le).split('\n');
+  const newLines = fn(oldLines);
+  const block = newLines.join('\n');
+  const out = text.slice(0, ls) + block + text.slice(le);
+  if (start === end) {
+    const p = Math.max(ls, start + newLines[0].length - oldLines[0].length);
+    return { text: out, start: p, end: p };
+  }
+  return { text: out, start: ls, end: ls + block.length };
+}
+
+// Ctrl+Shift+7: bullet list on/off. All lines already plain bullets → remove
+// the markers; otherwise every non-blank line becomes one (a numbered item
+// is renumbered as a bullet, checkboxes are left as they are).
+function mdToggleBullets(text, start, end) {
+  return mdMapLines(text, start, end, (lines) => {
+    const items = lines.filter(l => l.trim());
+    if (items.length && items.every(l => MD_BULLET.test(l))) return lines.map(l => l.replace(MD_BULLET, '$1'));
+    return lines.map((l) => {
+      if (!l.trim() || MD_BULLET.test(l) || MD_CHECKBOX.test(l)) return l;
+      const m = l.match(MD_ANY_ITEM);
+      if (m) return m[1] + '- ' + l.slice(m[0].length);
+      const indent = l.match(/^\s*/)[0];
+      return indent + '- ' + l.slice(indent.length);
+    });
+  });
+}
+
+// Ctrl+Enter: tick or untick the checkboxes on the selected lines (all
+// ticked → untick all, otherwise tick all). Lines without a checkbox get
+// one, so Ctrl+Enter also starts a checklist.
+function mdToggleCheckbox(text, start, end) {
+  return mdMapLines(text, start, end, (lines) => {
+    const boxes = lines.filter(l => MD_CHECKBOX.test(l));
+    if (boxes.length) {
+      const mark = boxes.every(l => /x/i.test(l.match(MD_CHECKBOX)[2])) ? ' ' : 'x';
+      return lines.map(l => l.replace(MD_CHECKBOX, '$1' + mark + '$3'));
+    }
+    return lines.map((l) => {
+      if (!l.trim()) return l;
+      const m = l.match(MD_ANY_ITEM);
+      if (m) return m[1] + '- [ ] ' + l.slice(m[0].length);
+      const indent = l.match(/^\s*/)[0];
+      return indent + '- [ ] ' + l.slice(indent.length);
+    });
+  });
+}
+
+// Write a transform's result into the editor. Only the changed span is
+// replaced, through execCommand so the browser keeps it on the undo stack
+// (and fires 'input', which autosaves); assignment is the fallback.
+function applyEditorEdit(r) {
+  if (!r) return;
+  const old = $editor.value, nv = r.text;
+  if (nv !== old) {
+    let a = 0;
+    while (a < old.length && a < nv.length && old[a] === nv[a]) a++;
+    let b = 0;
+    while (b < old.length - a && b < nv.length - a && old[old.length - 1 - b] === nv[nv.length - 1 - b]) b++;
+    const ins = nv.slice(a, nv.length - b);
+    $editor.focus();
+    $editor.setSelectionRange(a, old.length - b);
+    let ok = false;
+    try { ok = ins ? document.execCommand('insertText', false, ins) : document.execCommand('delete'); } catch { ok = false; }
+    if (!ok || $editor.value !== nv) { $editor.value = nv; $editor.dispatchEvent(new Event('input')); }
+  }
+  $editor.setSelectionRange(r.start, r.end);
+}
+
+// The formatting key for a keydown, or null. AltGr arrives as Ctrl+Alt on
+// Windows, so Alt is excluded to keep AltGr characters typeable.
+function formatForKey(e) {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey) return null;
+  const k = e.key.toLowerCase();
+  if (!e.shiftKey) {
+    if (k === 'b') return (t, s, en) => mdToggleWrap(t, s, en, '**');
+    if (k === 'i') return (t, s, en) => mdToggleWrap(t, s, en, '*');
+    if (k === 'e') return (t, s, en) => mdToggleWrap(t, s, en, '`');
+    if (k === 'k') return mdLink;
+    if (e.key === 'Enter') return mdToggleCheckbox;
+  } else {
+    if (k === 'x') return (t, s, en) => mdToggleWrap(t, s, en, '~~');
+    if (e.code === 'Digit7') return mdToggleBullets;  // e.key is '/' on Swedish, '&' on US layouts
+  }
+  return null;
+}
+
 // === SECTION: KEYBOARD SHORTCUTS ===
 document.addEventListener('keydown', e => {
   // Ctrl+N → new note
@@ -3131,8 +3365,11 @@ document.addEventListener('keydown', e => {
   if (e.ctrlKey && e.key === 'f') { e.preventDefault(); openFindBar(); }
   // Ctrl+P → command palette
   if (e.ctrlKey && e.key === 'p') { e.preventDefault(); openPalette(); }
-  // Ctrl+B → toggle sidebar
-  if (e.ctrlKey && e.key === 'b') { e.preventDefault(); toggleSidebar(); }
+  // Ctrl+Shift+B or Ctrl+\ → toggle sidebar; plain Ctrl+B too outside the
+  // editor (in the editor it is bold, handled by the editor's own listener)
+  if (e.ctrlKey && !e.altKey && (e.key === '\\' || (e.key.toLowerCase() === 'b' && (e.shiftKey || e.target !== $editor)))) {
+    e.preventDefault(); toggleSidebar();
+  }
   // Ctrl+Delete → delete note
   if (e.ctrlKey && e.key === 'Delete') { e.preventDefault(); confirmDelete(); }
   // Ctrl+M → toggle markdown preview

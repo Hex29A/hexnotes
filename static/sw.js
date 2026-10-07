@@ -2,6 +2,7 @@ const CACHE = 'hexnotes-v8';
 const STATIC = [
   '/', '/index.html', '/manifest.json', '/icon-192.png', '/icon-512.png',
   '/vendor/marked-15.0.12.min.js', '/vendor/purify-3.4.15.min.js',
+  '/vendor/codemirror-6.36.8.min.js',
   '/vendor/JetBrainsMono-2.304-Regular.woff2', '/vendor/JetBrainsMono-2.304-Bold.woff2',
 ];
 

@@ -77,7 +77,10 @@ def page(server, browser):
     url, _ = server
     # The app CSP forbids eval, which wait_for_function polls with.
     ctx = browser.new_context(bypass_csp=True)
-    ctx.add_init_script(f"localStorage.setItem('hexnotes_token', '{TOKEN}');")
+    # These drive the textarea directly, so they pin the classic editor; the
+    # live (CodeMirror) editor is covered by test_live_editor.py.
+    ctx.add_init_script(f"localStorage.setItem('hexnotes_token', '{TOKEN}');"
+                        "localStorage.setItem('hexnotes_editor', 'classic');")
     pg = ctx.new_page()
     errors = []
     pg.on("pageerror", lambda e: errors.append(str(e)))

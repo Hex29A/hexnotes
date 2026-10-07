@@ -19,6 +19,7 @@ try {
 <link rel="apple-touch-icon" href="/icon-192.png">
 <script src="/vendor/marked-15.0.12.min.js"></script>
 <script src="/vendor/purify-3.4.15.min.js"></script>
+<script src="/vendor/codemirror-6.36.8.min.js"></script>
 <style>
 /* === SECTION: CSS RESET & VARIABLES === */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -597,6 +598,21 @@ input { font-family: var(--font); color: var(--text-primary); background: var(--
   color: var(--text-primary);
   tab-size: 2;
 }
+/* Live editor (CodeMirror) — matches the textarea and the preview */
+#editor-wrap .cm-editor { flex: 1; min-height: 0; background: var(--bg-primary); color: var(--text-primary); }
+#editor-wrap .cm-editor.cm-focused { outline: none; }
+#editor-wrap .cm-scroller { font-family: var(--font); font-size: 14px; line-height: 1.6; overflow-y: auto; }
+#editor-wrap .cm-content { padding: 16px; caret-color: var(--text-primary); }
+#editor-wrap .cm-line { padding: 0; }
+.cm-lp-mono { background: var(--bg-card); border-radius: 3px; }
+.cm-lp-codeblock { background: var(--bg-card); }
+.cm-lp-quote { border-left: 3px solid var(--accent); padding-left: 12px !important; color: var(--text-muted); }
+.cm-lp-link { color: var(--accent); text-decoration: underline; cursor: pointer; }
+.cm-lp-wiki { color: var(--accent); border-bottom: 1px solid var(--accent); cursor: pointer; }
+.cm-lp-wiki-missing { color: var(--error-text); border-bottom: 1px dashed var(--error-text); }
+.cm-lp-bullet { color: var(--text-muted); }
+.cm-lp-hr { display: inline-block; width: 100%; vertical-align: middle; border-top: 1px solid var(--border); }
+.cm-lp-task { cursor: pointer; width: 15px; height: 15px; accent-color: var(--accent); margin: 0 2px 0 0; vertical-align: middle; }
 #save-indicator {
   position: absolute;
   bottom: 12px;
@@ -1164,7 +1180,7 @@ mark {
      computed font-size under 16px — that zoomed state is what let the note
      be dragged sideways while editing (and viewing, since the zoom lingers
      after switching to preview). 16px here disables that zoom. */
-  #editor, #search-input, #filename-input, #find-input, #palette-input, #auth-token {
+  #editor, #editor-wrap .cm-scroller, #search-input, #filename-input, #find-input, #palette-input, #auth-token {
     font-size: 16px;
   }
 }
@@ -1391,6 +1407,363 @@ const $btnConfirmYes = document.getElementById('btn-confirm-yes');
 const $btnConfirmNo = document.getElementById('btn-confirm-no');
 const $preview = document.getElementById('preview');
 const $btnPreview = document.getElementById('filename-preview-btn');
+
+// === SECTION: LIVE EDITOR ===
+// Obsidian-style live preview: a CodeMirror 6 view that shows the note
+// rendered while the text underneath stays plain markdown. Syntax marks are
+// hidden except where the caret is, so what is typed is always exactly what
+// is saved. The textarea stays the model the rest of the app talks to: while
+// the live view is shown, $editor's value, selection, focus and scroll are
+// routed to it, so autosave, conflicts, remote sync, find and the format
+// shortcuts run unchanged. The textarea itself is the "source" mode.
+// ?editor=classic switches back to textarea + rendered preview (remembered
+// per device, ?editor=live undoes it); if the bundle failed to load the app
+// quietly stays classic.
+const LIVE = (() => {
+  const p = new URLSearchParams(location.search).get('editor');
+  let pref = p;
+  try {
+    if (p === 'classic' || p === 'live') localStorage.setItem('hexnotes_editor', p);
+    else pref = localStorage.getItem('hexnotes_editor');
+  } catch {}
+  return pref !== 'classic' && typeof CM !== 'undefined';
+})();
+let liveView = null;
+let liveShown = false;   // live view visible (the textarea is hidden)
+let liveSyncing = false; // a change pushed from $editor, not typed
+let liveDocKey = null;   // which note the live doc's undo history belongs to
+
+const TA = HTMLTextAreaElement.prototype;
+const taValue = Object.getOwnPropertyDescriptor(TA, 'value');
+const taSelStart = Object.getOwnPropertyDescriptor(TA, 'selectionStart');
+const taSelEnd = Object.getOwnPropertyDescriptor(TA, 'selectionEnd');
+const elScrollTop = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop');
+
+function editorHasFocus() {
+  return document.activeElement === $editor || (liveShown && liveView.hasFocus);
+}
+function isEditorTarget(t) {
+  return t === $editor || (liveShown && liveView.contentDOM.contains(t));
+}
+
+function liveSelect(anchor, head) {
+  const len = liveView.state.doc.length;
+  liveView.dispatch({
+    selection: { anchor: Math.min(anchor, len), head: Math.min(head, len) },
+    scrollIntoView: true,
+  });
+}
+
+// Push a value set on $editor into the live doc. A different note gets a
+// fresh state (its own undo history, like a textarea after .value =); the
+// same note gets only the changed span, so undo and scroll survive the
+// list continuation, Tab, checklist and remote-sync writes.
+function liveSetDoc(v) {
+  const key = (activeNoteId || '') + '|' + isNew;
+  liveSyncing = true;
+  try {
+    if (key !== liveDocKey) {
+      liveDocKey = key;
+      liveView.setState(liveState(v));
+      return;
+    }
+    const old = liveView.state.doc.toString();
+    if (old === v) return;
+    let a = 0;
+    while (a < old.length && a < v.length && old[a] === v[a]) a++;
+    let b = 0;
+    while (b < old.length - a && b < v.length - a && old[old.length - 1 - b] === v[v.length - 1 - b]) b++;
+    liveView.dispatch({ changes: { from: a, to: old.length - b, insert: v.slice(a, v.length - b) } });
+  } finally {
+    liveSyncing = false;
+  }
+}
+
+function liveState(doc) {
+  return CM.EditorState.create({ doc, extensions: liveExtensions() });
+}
+
+let liveExtCache = null;
+function liveExtensions() {
+  if (liveExtCache) return liveExtCache;
+  const { EditorView, ViewPlugin, Decoration, WidgetType, syntaxTree, tags: t } = CM;
+  const mdLang = new CM.Language(CM.defineLanguageFacet(),
+    CM.markdownParser.configure([CM.GFM]), [], 'markdown');
+
+  const highlight = CM.HighlightStyle.define([
+    { tag: t.heading1, fontSize: '1.6em', fontWeight: '700' },
+    { tag: t.heading2, fontSize: '1.3em', fontWeight: '700' },
+    { tag: t.heading3, fontSize: '1.1em', fontWeight: '700' },
+    { tag: [t.heading4, t.heading5, t.heading6], fontWeight: '700' },
+    { tag: t.strong, fontWeight: '700' },
+    { tag: t.emphasis, fontStyle: 'italic' },
+    { tag: t.strikethrough, textDecoration: 'line-through' },
+    { tag: t.monospace, class: 'cm-lp-mono' },
+    { tag: [t.processingInstruction, t.url, t.contentSeparator, t.labelName], color: 'var(--text-muted)' },
+    { tag: t.quote, color: 'var(--text-muted)' },
+  ]);
+
+  class CheckboxWidget extends WidgetType {
+    constructor(checked, pos) { super(); this.checked = checked; this.pos = pos; }
+    eq(o) { return o.checked === this.checked && o.pos === this.pos; }
+    toDOM(view) {
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.className = 'cm-lp-task';
+      box.checked = this.checked;
+      // mousedown is swallowed so the tap neither moves the caret nor pops
+      // the keyboard; the click itself flips the x in the source.
+      box.addEventListener('mousedown', e => e.preventDefault());
+      box.addEventListener('click', e => {
+        e.preventDefault();
+        view.dispatch({ changes: { from: this.pos + 1, to: this.pos + 2, insert: this.checked ? ' ' : 'x' } });
+      });
+      return box;
+    }
+    ignoreEvent() { return true; }
+  }
+  class TextWidget extends WidgetType {
+    constructor(text, cls) { super(); this.text = text; this.cls = cls; }
+    eq(o) { return o.text === this.text && o.cls === this.cls; }
+    toDOM() {
+      const s = document.createElement('span');
+      s.className = this.cls;
+      s.textContent = this.text;
+      return s;
+    }
+  }
+
+  const hide = Decoration.replace({});
+  const bullet = Decoration.replace({ widget: new TextWidget('•', 'cm-lp-bullet') });
+  const hr = Decoration.replace({ widget: new TextWidget('', 'cm-lp-hr') });
+  const lineQuote = Decoration.line({ class: 'cm-lp-quote' });
+  const lineCode = Decoration.line({ class: 'cm-lp-codeblock' });
+  const WIKI = /\[\[([^\[\]\n]+)\]\]/g;
+  const CODE_NODES = new Set(['InlineCode', 'FencedCode', 'CodeBlock', 'CodeText']);
+
+  function build(view) {
+    const { state } = view;
+    const doc = state.doc;
+    const ranges = state.selection.ranges;
+    const focused = view.hasFocus;
+    // Marks show around the caret: inline ones when the caret touches the
+    // element, line-level ones (heading #, quote >, list -) on its line.
+    const touches = (from, to) => focused && ranges.some(r => r.from <= to && r.to >= from);
+    const lineActive = pos => {
+      const l = doc.lineAt(pos);
+      return touches(l.from, l.to);
+    };
+    const sameLine = (from, to) => doc.lineAt(from).number === doc.lineAt(to).number;
+    const out = [];
+    const add = (from, to, deco) => { if (from < to) out.push(deco.range(from, to)); };
+    const hideSpan = (from, to) => { if (from < to && sameLine(from, to)) out.push(hide.range(from, to)); };
+    const spaceAfter = pos => (doc.sliceString(pos, pos + 1) === ' ' ? pos + 1 : pos);
+
+    for (const { from, to } of view.visibleRanges) {
+      syntaxTree(state).iterate({
+        from, to,
+        enter(node) {
+          const n = node.name;
+          if (n === 'HeaderMark' && node.node.parent?.name.startsWith('ATXHeading')) {
+            if (!lineActive(node.from)) hideSpan(node.from, spaceAfter(node.to));
+          } else if (n === 'EmphasisMark' || n === 'StrikethroughMark') {
+            const p = node.node.parent;
+            if (p && !touches(p.from, p.to)) hideSpan(node.from, node.to);
+          } else if (n === 'CodeMark' && node.node.parent?.name === 'InlineCode') {
+            const p = node.node.parent;
+            if (!touches(p.from, p.to)) hideSpan(node.from, node.to);
+          } else if (n === 'Link') {
+            const marks = node.node.getChildren('LinkMark');
+            const url = node.node.getChild('URL');
+            if (!url || marks.length < 2 || marks[0].from !== node.from) return false;
+            const text = { from: marks[0].to, to: marks[1].from };
+            const href = doc.sliceString(url.from, url.to);
+            if (text.from < text.to && sameLine(text.from, text.to)) {
+              out.push(Decoration.mark({ class: 'cm-lp-link', attributes: { 'data-href': href } })
+                .range(text.from, text.to));
+            }
+            if (!touches(node.from, node.to)) {
+              hideSpan(node.from, text.from);
+              hideSpan(text.to, node.to);
+            }
+            return false;
+          } else if (n === 'ListMark') {
+            const item = node.node.parent;
+            const task = item?.getChild('Task');
+            if (task) {
+              if (!lineActive(node.from)) hideSpan(node.from, spaceAfter(node.to));
+            } else if (item?.parent?.name === 'BulletList' && !lineActive(node.from)) {
+              add(node.from, node.to, bullet);
+            }
+          } else if (n === 'TaskMarker') {
+            if (!touches(node.from, node.to)) {
+              const checked = /x/i.test(doc.sliceString(node.from + 1, node.to - 1));
+              out.push(Decoration.replace({ widget: new CheckboxWidget(checked, node.from) })
+                .range(node.from, node.to));
+            }
+          } else if (n === 'Blockquote') {
+            for (let p = node.from; p <= node.to;) {
+              const l = doc.lineAt(p);
+              out.push(lineQuote.range(l.from));
+              p = l.to + 1;
+            }
+          } else if (n === 'QuoteMark') {
+            if (!lineActive(node.from)) hideSpan(node.from, spaceAfter(node.to));
+          } else if (n === 'HorizontalRule') {
+            if (!lineActive(node.from) && sameLine(node.from, node.to)) add(node.from, node.to, hr);
+          } else if (n === 'FencedCode' || n === 'CodeBlock') {
+            for (let p = node.from; p <= node.to;) {
+              const l = doc.lineAt(p);
+              out.push(lineCode.range(l.from));
+              p = l.to + 1;
+            }
+          }
+        },
+      });
+
+      // [[wiki links]] are not markdown, so they are found by pattern,
+      // skipping anything inside code.
+      const text = doc.sliceString(from, to);
+      for (const m of text.matchAll(WIKI)) {
+        const s = from + m.index, e = s + m[0].length;
+        let inCode = false;
+        for (let nd = syntaxTree(state).resolveInner(s + 2, 1); nd; nd = nd.parent) {
+          if (CODE_NODES.has(nd.name)) { inCode = true; break; }
+        }
+        if (inCode) continue;
+        const name = m[1].trim();
+        const cls = findNoteByWikiName(name) ? 'cm-lp-wiki' : 'cm-lp-wiki cm-lp-wiki-missing';
+        out.push(Decoration.mark({ class: cls, attributes: { 'data-wiki': name } }).range(s + 2, e - 2));
+        if (!touches(s, e)) { hideSpan(s, s + 2); hideSpan(e - 2, e); }
+      }
+    }
+    return Decoration.set(out, true);
+  }
+
+  const livePreview = ViewPlugin.fromClass(class {
+    constructor(view) { this.decorations = build(view); }
+    update(u) {
+      if (u.docChanged || u.viewportChanged || u.selectionSet || u.focusChanged
+          || syntaxTree(u.startState) !== syntaxTree(u.state)) {
+        this.decorations = build(u.view);
+      }
+    }
+  }, { decorations: v => v.decorations });
+
+  // Hooks into the app: keys go through the textarea's handler first (format
+  // shortcuts, Tab, list continuation — highest precedence so CodeMirror's
+  // own Mod-i/Mod-Enter bindings never see them), links open on click, and
+  // blur/scroll are relayed for the [[ suggestion popup.
+  const appHooks = CM.Prec.highest(EditorView.domEventHandlers({
+    keydown(e) { editorKeydown(e); return e.defaultPrevented; },
+    mousedown(e) {
+      if (e.button !== 0 || e.shiftKey) return false;
+      const wiki = e.target.closest?.('[data-wiki]');
+      const link = e.target.closest?.('[data-href]');
+      if (wiki) {
+        const note = findNoteByWikiName(wiki.dataset.wiki);
+        if (!note) return false;
+        e.preventDefault();
+        openNote(note.id);
+        if (isMobile) hideMobileList();
+        return true;
+      }
+      if (link && /^(https?:|mailto:)/i.test(link.dataset.href)) {
+        e.preventDefault();
+        window.open(link.dataset.href, '_blank', 'noopener');
+        return true;
+      }
+      return false;
+    },
+    blur() { $editor.dispatchEvent(new Event('blur')); return false; },
+    // Only a scroll the user makes closes the popup: CodeMirror also scrolls
+    // on its own to keep the caret in view while typing.
+    wheel() { $editor.dispatchEvent(new Event('scroll')); return false; },
+    touchmove() { $editor.dispatchEvent(new Event('scroll')); return false; },
+  }));
+
+  const toModel = EditorView.updateListener.of(u => {
+    if (!u.docChanged || liveSyncing) return;
+    taValue.set.call($editor, u.state.doc.toString());
+    // After the update has finished: listeners (the [[ popup) read layout,
+    // which CodeMirror forbids mid-update.
+    queueMicrotask(() => $editor.dispatchEvent(new Event('input')));
+  });
+
+  liveExtCache = [
+    CM.history(),
+    CM.keymap.of([...CM.defaultKeymap, ...CM.historyKeymap]),
+    mdLang.extension ?? mdLang,
+    CM.syntaxHighlighting(highlight),
+    livePreview,
+    appHooks,
+    toModel,
+    EditorView.lineWrapping,
+    EditorView.contentAttributes.of({ spellcheck: 'false', 'aria-label': 'Note' }),
+  ];
+  return liveExtCache;
+}
+
+if (LIVE) {
+  liveView = new CM.EditorView({ state: liveState(''), parent: $editor.parentElement });
+  liveView.dom.style.display = 'none';
+  Object.defineProperties($editor, {
+    value: {
+      get() { return taValue.get.call(this); },
+      set(v) { taValue.set.call(this, v); liveSetDoc(taValue.get.call(this)); },
+    },
+    selectionStart: {
+      get() { return liveShown ? liveView.state.selection.main.from : taSelStart.get.call(this); },
+      set(n) {
+        if (!liveShown) return taSelStart.set.call(this, n);
+        liveSelect(n, Math.max(n, liveView.state.selection.main.to));
+      },
+    },
+    selectionEnd: {
+      get() { return liveShown ? liveView.state.selection.main.to : taSelEnd.get.call(this); },
+      set(n) {
+        if (!liveShown) return taSelEnd.set.call(this, n);
+        liveSelect(Math.min(n, liveView.state.selection.main.from), n);
+      },
+    },
+    scrollTop: {
+      get() { return liveShown ? liveView.scrollDOM.scrollTop : elScrollTop.get.call(this); },
+      set(n) { if (liveShown) liveView.scrollDOM.scrollTop = n; else elScrollTop.set.call(this, n); },
+    },
+    setSelectionRange: {
+      value(a, b) { if (liveShown) liveSelect(a, b); else TA.setSelectionRange.call(this, a, b); },
+    },
+    focus: {
+      value(opts) { if (liveShown) liveView.focus(); else HTMLElement.prototype.focus.call(this, opts); },
+    },
+  });
+}
+
+// Live view on (rendered, editable) or off (the raw textarea). Replaces the
+// read-only preview when LIVE is set; setPreviewMode routes here.
+function setLiveMode(on, focus) {
+  if (on && !liveShown) {
+    const a = taSelStart.get.call($editor), b = taSelEnd.get.call($editor);
+    liveSetDoc(taValue.get.call($editor));
+    liveShown = true;
+    $editor.style.display = 'none';
+    liveView.dom.style.display = '';
+    liveView.dispatch({ selection: { anchor: Math.min(a, liveView.state.doc.length), head: Math.min(b, liveView.state.doc.length) } });
+    liveView.requestMeasure();
+  } else if (!on && liveShown) {
+    const { from, to } = liveView.state.selection.main;
+    liveShown = false;
+    liveView.dom.style.display = 'none';
+    $editor.style.display = '';
+    TA.setSelectionRange.call($editor, from, to);
+  }
+  $preview.style.display = 'none';
+  $btnPreview.classList.toggle('active', !on);
+  $btnPreview.innerHTML = icon(on ? 'code' : 'eye');
+  $btnPreview.title = on ? 'Source (Ctrl+M)' : 'Live preview (Ctrl+M)';
+  if (focus) $editor.focus();
+}
+
 // === SECTION: API ===
 async function apiFetch(path, options = {}) {
   const headers = { 'Authorization': `Bearer ${apiToken}`, ...options.headers };
@@ -1922,7 +2295,7 @@ function openNote(id) {
   $filenameRow.style.display = 'flex';
   // Notes open rendered; Ctrl+M or the eye toggles editing. Empty notes go
   // straight to the editor — a blank preview is useless.
-  setPreviewMode(noteHadContent);
+  setPreviewMode(LIVE || noteHadContent);
 
   pendingContent = null;
   clearTimeout(saveTimer);
@@ -1978,7 +2351,7 @@ function createNewNote(ephemeral = false) {
   $emptyState.style.display = 'none';
   $editor.parentElement.style.display = 'flex';
   $filenameRow.style.display = 'flex';
-  setPreviewMode(false); // an empty note has nothing to render — straight to editing
+  setPreviewMode(LIVE); // an empty note has nothing to render — straight to editing (live is editable)
 
   renderNotesList();
 
@@ -2255,7 +2628,7 @@ function syncActiveNoteFrom(list, seq) {
   // saved; it would fire with the pre-swap text and overwrite what we just took.
   clearTimeout(saveTimer);
   // Preserve the user's place — setting .value alone jumps the caret to the end
-  const hadFocus = document.activeElement === $editor;
+  const hadFocus = editorHasFocus();
   const selStart = $editor.selectionStart;
   const selEnd = $editor.selectionEnd;
   const scrollTop = $editor.scrollTop;
@@ -2380,6 +2753,11 @@ function wlActiveQuery() {
 }
 
 function wlCaretCoords() {
+  if (liveShown) {
+    const c = liveView.coordsAtPos(liveView.state.selection.main.head);
+    const r = $editor.parentElement.getBoundingClientRect();
+    return c ? { top: c.top - r.top, left: c.left - r.left } : { top: 0, left: 0 };
+  }
   // Mirror the textarea content up to the caret in a hidden div to find the
   // caret's pixel position — textareas expose no caret coordinates natively.
   const div = document.createElement('div');
@@ -2427,7 +2805,7 @@ function wlRender(query) {
   });
   const c = wlCaretCoords();
   const lineH = parseFloat(getComputedStyle($editor).lineHeight) || 20;
-  $wlSuggest.style.left = Math.max(0, Math.min(c.left, $editor.clientWidth - 240)) + 'px';
+  $wlSuggest.style.left = Math.max(0, Math.min(c.left, $editor.parentElement.clientWidth - 240)) + 'px';
   $wlSuggest.style.top = (c.top + lineH + 4) + 'px';
   $wlSuggest.style.display = 'block';
 }
@@ -2463,7 +2841,7 @@ $editor.addEventListener('scroll', wlClose);
 // Capture phase on document — must run before the editor's own Tab handler
 // and the global shortcut handlers
 document.addEventListener('keydown', e => {
-  if (document.activeElement !== $editor || $wlSuggest.style.display !== 'block') return;
+  if (!editorHasFocus() || $wlSuggest.style.display !== 'block') return;
   if (e.key === 'ArrowDown') {
     e.preventDefault(); e.stopImmediatePropagation();
     wlSelectedIdx = Math.min(wlSelectedIdx + 1, wlItems.length - 1);
@@ -2497,8 +2875,9 @@ $preview.addEventListener('touchend', e => {
 });
 
 // === SECTION: PREVIEW ===
-function setPreviewMode(on) {
+function setPreviewMode(on, focus = false) {
   isPreviewMode = on;
+  if (LIVE) return setLiveMode(on, focus);
   if (on) {
     const html = DOMPurify.sanitize(marked.parse($editor.value || ''));
     $preview.innerHTML = html;
@@ -2521,7 +2900,7 @@ function setPreviewMode(on) {
 
 function togglePreview() {
   if (!activeNoteId && !isNew) return;
-  setPreviewMode(!isPreviewMode);
+  setPreviewMode(!isPreviewMode, true);
 }
 
 // === SECTION: BACKLINKS ===
@@ -3067,7 +3446,8 @@ $btnSearchClear.addEventListener('click', () => {
 });
 
 // === SECTION: FORMATTING KEYS, TAB HANDLING + LIST AUTO-CONTINUE ===
-$editor.addEventListener('keydown', e => {
+$editor.addEventListener('keydown', editorKeydown);
+function editorKeydown(e) {
   const fmt = formatForKey(e);
   if (fmt) {
     e.preventDefault();
@@ -3107,11 +3487,11 @@ $editor.addEventListener('keydown', e => {
     if (cb) { cb[2].trim() === '' ? empty() : cont(cb[1] + '- [ ] '); }
     else if (bul) { bul[3].trim() === '' ? empty() : cont(bul[1] + bul[2] + ' '); }
   }
-});
+}
 
 // Button: turn the current line (or every selected line) into a checkbox.
 function insertChecklist() {
-  if (isPreviewMode) setPreviewMode(false);
+  if (isPreviewMode && !LIVE) setPreviewMode(false);
   const val = $editor.value;
   const s = $editor.selectionStart, en = $editor.selectionEnd;
   const lineStart = val.lastIndexOf('\n', s - 1) + 1;
@@ -3324,6 +3704,13 @@ function mdToggleCheckbox(text, start, end) {
 function applyEditorEdit(r) {
   if (!r) return;
   const old = $editor.value, nv = r.text;
+  if (liveShown) {
+    if (nv !== old) $editor.value = nv;  // diffed into one undoable change
+    $editor.dispatchEvent(new Event('input'));
+    $editor.setSelectionRange(r.start, r.end);
+    $editor.focus();
+    return;
+  }
   if (nv !== old) {
     let a = 0;
     while (a < old.length && a < nv.length && old[a] === nv[a]) a++;
@@ -3367,7 +3754,7 @@ document.addEventListener('keydown', e => {
   if (e.ctrlKey && e.key === 'p') { e.preventDefault(); openPalette(); }
   // Ctrl+Shift+B or Ctrl+\ → toggle sidebar; plain Ctrl+B too outside the
   // editor (in the editor it is bold, handled by the editor's own listener)
-  if (e.ctrlKey && !e.altKey && (e.key === '\\' || (e.key.toLowerCase() === 'b' && (e.shiftKey || e.target !== $editor)))) {
+  if (e.ctrlKey && !e.altKey && (e.key === '\\' || (e.key.toLowerCase() === 'b' && (e.shiftKey || !isEditorTarget(e.target))))) {
     e.preventDefault(); toggleSidebar();
   }
   // Ctrl+Delete → delete note
@@ -3685,6 +4072,7 @@ const ICONS = {
   'chevron-up': '<path d="m18 15-6-6-6 6" />',
   'chevrons-down-up': '<path d="m7 20 5-5 5 5" /> <path d="m7 4 5 5 5-5" />',
   'chevrons-up-down': '<path d="m7 15 5 5 5-5" /> <path d="m7 9 5-5 5 5" />',
+  'code': '<path d="m16 18 6-6-6-6" /> <path d="m8 6-6 6 6 6" />',
   'eye': '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" /> <circle cx="12" cy="12" r="3" />',
   'file-text': '<path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" /> <path d="M14 2v5a1 1 0 0 0 1 1h5" /> <path d="M10 9H8" /> <path d="M16 13H8" /> <path d="M16 17H8" />',
   'history': '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /> <path d="M3 3v5h5" /> <path d="M12 7v5l4 2" />',

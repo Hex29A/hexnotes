@@ -1,0 +1,661 @@
+# <img src="static/icon-192.png" width="30" height="30" alt="" align="top"> HexNotes
+
+Self-hosted, lightweight note-taking app. Notes are stored as plain `.md` files on disk. No database. Exposes a REST API for browser, mobile (PWA), and AI-agent access.
+
+![HexNotes — sidebar with an ephemeral note, pinned notes and All notes under date headings; a note open with a wiki link, an external link and task checkboxes](docs/screenshot.png)
+
+Notes can be created as **ephemeral** with a TTL (`POST /api/notes` body: `"ttl_hours": 48`) — they are auto-moved to trash when the TTL expires.
+Live ephemeral notes get their own ⏳ Ephemeral section at the top of the sidebar (above Pinned), with yellow-accented cards and a countdown badge that updates every minute.
+
+> **Since 1.43 notes are edited in rendered form** (Obsidian-style live preview): you type straight into the formatted note and the markdown only shows where the caret is. `Ctrl+M` shows the raw source. See [Editing](#editing-live-preview--wiki-links) and the [changelog](CHANGELOG.md).
+
+Current version: see `APP_VERSION` in `backend/main.py`, exposed via `GET /health` and shown in the topbar. Release notes in [CHANGELOG.md](CHANGELOG.md).
+
+---
+
+## Quick Start
+
+```bash
+# 1. Clone and configure
+cp .env.example .env
+# Edit .env — set a strong ASCII-only ADMIN_SECRET
+
+# 2. Create empty token file if it doesn't exist.
+# Do this BEFORE the first start: tokens.json is bind-mounted as a file, and
+# Docker creates a *directory* in its place if it is missing. The app then
+# starts but silently fails to persist tokens, and every token you create
+# disappears on restart.
+echo '{"tokens": []}' > tokens.json
+
+# 3. Build and start
+docker compose up -d --build
+
+# 4. Create your first token
+docker exec hexnotes python3 -c "
+import urllib.request, os, json
+admin = os.environ.get('ADMIN_SECRET','')
+req = urllib.request.Request(
+    'http://localhost:8000/admin/tokens',
+    data=json.dumps({'name': 'my-device'}).encode(),
+    headers={'Authorization': f'Bearer {admin}', 'Content-Type': 'application/json'},
+    method='POST'
+)
+with urllib.request.urlopen(req) as r:
+    print(r.read().decode())
+"
+
+# 5. Open the app
+# http://localhost:8888
+# Paste the token when prompted
+```
+
+> **Note:** Use an ASCII-only `ADMIN_SECRET` (no special characters). HTTP headers don't reliably carry non-ASCII values, so admin API calls from curl/external tools will fail with special characters in the secret.
+
+---
+
+## Architecture
+
+| Component | Detail |
+|-----------|--------|
+| Backend   | Python 3.12 + FastAPI |
+| Frontend  | Single-file Vanilla HTML/JS/CSS |
+| Storage   | `.md` files in `notes/` (Docker bind mount) |
+| Port      | `8888` on host → `8000` inside container |
+| Networks  | `hexnotes_default` + `nginx_proxy_manager_default` |
+
+**File layout:**
+```
+notes/
+├── 2026-04-04.md        ← auto-named with creation date
+├── ideas.md             ← manually renamed
+├── .history/            ← version history, one dir per note
+│   └── ideas/
+│       └── 2026-06-10T07-30-00-123456.md   ← snapshot (UTC timestamp)
+└── .trash/              ← deleted notes (restorable, see Trash API)
+    ├── 2026-06-10T08-00-00-654321__old.md  ← timestamped: never overwrites
+    └── .history/
+        └── 2026-06-10T08-00-00-654321__old/  ← the note's history follows it
+```
+
+Everything lives under `notes/`, so backing up that one bind mount captures notes, history and trash alike.
+
+---
+
+## Authentication
+
+All API requests require a Bearer token in the `Authorization` header:
+
+```
+Authorization: Bearer tok_abc123...
+```
+
+Tokens are stored in `tokens.json` (persisted via Docker volume). Each token has a name for traceability. A separate `ADMIN_SECRET` (from `.env`) is required for token management.
+
+---
+
+## REST API Reference
+
+Base URL: `http://<host>:8888`
+
+### Notes
+
+#### `GET /api/notes`
+List all notes, sorted by last updated (descending).
+
+**Query parameters:**
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `q` | string | Full-text search (content + filename + tags) |
+| `tag` | string | Filter by tag name |
+| `limit` | int | Max results (default: 50) |
+| `offset` | int | Pagination offset |
+
+**Response:**
+```json
+[
+  {
+    "id": "2026-04-04",
+    "filename": "2026-04-04.md",
+    "content": "My note content #tag",
+    "tags": ["tag"],
+    "created_at": "2026-04-04T00:00:00",
+    "updated_at": "2026-04-04T10:15:15",
+    "preview": "My note content #tag",
+    "is_timeless": false,
+    "pinned": false,
+    "version": "f709c7eeb7b82d67",
+    "snippet": null
+  }
+]
+```
+
+- `id` — filename without `.md` extension
+- `is_timeless` — `true` if the filename has no `YYYY-MM-DD` prefix
+- `pinned` — `true` if the note is pinned to the top of the list
+- `content` — raw text, **never includes YAML frontmatter**
+- `version` — short content hash, used for conflict detection on `PATCH` (see below). Covers the body only, so pinning or renaming does not change it.
+- `snippet` — `null` normally. When `?q=` is provided, contains a ~90-char excerpt from the first matching line in the note body, with `…` ellipsis if truncated. Useful for AI agents to surface relevant context without reading full content.
+
+---
+
+#### `POST /api/notes`
+Create a new note.
+
+**Body:**
+```json
+{
+  "content": "Note text #tag",
+  "filename": "ideas.md"
+}
+```
+
+- `content` — optional, can be empty string
+- `filename` — optional. If omitted, auto-generated as `YYYY-MM-DD.md` (e.g. `2026-04-04.md`). Collisions get a suffix: `2026-04-04-2.md`
+
+**Returns:** full note object (200)  
+**Conflict:** 409 if filename already exists
+
+---
+
+#### `GET /api/notes/{id}`
+Get a single note by ID (filename without `.md`).
+
+```
+GET /api/notes/2026-04-04
+GET /api/notes/ideas
+```
+
+**Returns:** note object (200) or 404
+
+---
+
+#### `PATCH /api/notes/{id}`
+Update note content. Always send the **full content**, not a diff.
+
+```json
+{ "content": "Updated full content #newtag" }
+```
+
+- Tags in frontmatter are updated automatically from `#tags` in text
+- The previous version is snapshotted to `.history/<id>/` before the write (skipped if content is unchanged)
+- If `content` is empty or whitespace → note is moved to trash → returns `204 No Content` (restorable via the Trash API)
+
+**Conflict detection (optional).** Include the `version` you based your edit on and the write is rejected instead of overwriting a change you never saw:
+
+```json
+{ "content": "Updated full content", "base_version": "f709c7eeb7b82d67" }
+```
+
+If the note changed in the meantime the response is `409 Conflict` carrying the current state, so you can merge or retry without a second request:
+
+```json
+{
+  "detail": {
+    "error": "conflict",
+    "message": "The note was changed by someone else",
+    "version": "a3f01c9d2b6e4a77",
+    "content": "...what is on disk right now..."
+  }
+}
+```
+
+- Omitting `base_version` writes unconditionally — existing clients keep working
+- The check runs before the empty-content rule, so a stale client cannot trash a note that moved on
+- A rejected write changes nothing: no file write, no history snapshot
+- To force your version through, retry with the `version` from the 409 body
+- **For AI agents:** worth using whenever a human might have the same note open in the browser. Without it, whoever writes last wins silently.
+
+---
+
+#### `POST /api/notes/{id}/rename`
+Rename a note file.
+
+```json
+{ "new_filename": "docker-cheatsheet.md" }
+```
+
+- `.md` is appended automatically if missing
+- The filename is sanitized (path separators and `..` are stripped)
+- The note's version history follows the new name
+- Returns updated note object with new `id` and `filename`
+- **Important for AI agents:** update your reference to the note's `id` after a successful rename — the old `id` becomes invalid
+
+**Conflict:** 409 with message `"A note with that name already exists"`
+
+---
+
+#### `POST /api/notes/{id}/pin`
+Toggle pin state. Pinned notes appear at the top of the list, sorted by `updated_at` within the pinned group.
+
+Returns updated note object with `pinned: true` or `pinned: false`.
+
+---
+
+#### `DELETE /api/notes/{id}`
+Move note to trash. Not a permanent delete — restore it via the Trash API. A final history snapshot is taken first, and the note's history moves to `.trash/.history/` so a new note reusing the name starts with clean history.
+
+Returns `{ "status": "deleted", "id": "..." }`.
+
+---
+
+#### `GET /api/notes/{id}/raw`
+Returns raw file content as `text/plain` (includes YAML frontmatter).
+
+---
+
+### Version History
+
+Every save snapshots the previous version to `.history/<id>/<utc-timestamp>.md`. Unchanged saves are skipped. In the UI: the 🕘 button in the filename row.
+
+#### `GET /api/notes/{id}/history`
+List versions, newest first.
+
+```json
+[
+  { "version": "2026-06-10T07-30-00-123456", "timestamp": "2026-06-10T07:30:00", "preview": "First line of that version" }
+]
+```
+
+#### `GET /api/notes/{id}/history/{version}`
+Content of a specific version (frontmatter stripped). Version names are strictly validated.
+
+```json
+{ "version": "...", "timestamp": "...", "content": "..." }
+```
+
+There is no dedicated restore endpoint — restoring is a plain `PATCH` with the old content, which itself snapshots the current state first, so nothing is ever lost.
+
+---
+
+### Trash
+
+Deleted notes land in `.trash/` under a timestamped name (`<utc-ts>__<filename>.md`), so deleting two notes with the same name never overwrites anything. In the UI: the 🗑 button at the bottom of the sidebar.
+
+#### `GET /api/trash`
+List trashed notes, newest first.
+
+```json
+[
+  { "name": "2026-06-10T08-00-00-654321__ideas.md", "original_filename": "ideas.md", "deleted_at": "2026-06-10T08:00:00", "preview": "First line" }
+]
+```
+
+`name` is the identifier for the other trash endpoints. Legacy (pre-timestamp) trash files are listed too, with `deleted_at` from file mtime.
+
+#### `GET /api/trash/{name}`
+View the content of a trashed note (frontmatter stripped).
+
+#### `POST /api/trash/{name}/restore`
+Move the note back. If a live note already has the name, the restored note gets a unique name (`ideas-2.md`) — **a restore never overwrites anything**. The note's history comes back with it. Returns the restored note object.
+
+#### `DELETE /api/trash/{name}`
+**Permanent** delete — removes both the file and its entire version history from disk. This is the way to truly destroy sensitive content (e.g. a note that contained a leaked API key): delete the note, then purge it from trash.
+
+Returns `{ "status": "purged", "name": "..." }`.
+
+#### `DELETE /api/trash`
+**Permanently empty the trash** — removes every trashed note and all of their version history.
+
+Returns `{ "status": "purged", "count": 7 }`.
+
+---
+
+### Health
+
+#### `GET /health`
+```json
+{ "status": "ok", "notes_count": 42, "version": "1.5" }
+```
+
+No auth required. `version` is handy for verifying what a client or server is actually running.
+
+---
+
+### Admin – Token Management
+
+All admin endpoints require `Authorization: Bearer <ADMIN_SECRET>`.
+
+#### `POST /admin/tokens`
+Create a new named token.
+
+```json
+{ "name": "work-laptop" }
+```
+
+**Response:**
+```json
+{
+  "name": "work-laptop",
+  "token": "tok_abc123...",
+  "created_at": "2026-04-04T10:00:00+00:00"
+}
+```
+
+#### `DELETE /admin/tokens/{name}`
+Revoke a token by name. Other tokens are unaffected.
+
+#### `GET /admin/tokens`
+List all tokens — shows names and dates, **never the token values**.
+
+---
+
+## AI Agent Usage (Claude Code / MCP)
+
+HexNotes is designed as a readable/writable note store for AI agents.
+
+### Suggested workflow
+
+```
+# Read all notes
+GET /api/notes
+
+# Search for notes about a topic
+GET /api/notes?q=docker
+
+# Get notes with a specific tag
+GET /api/notes?tag=todo
+
+# Create a new note
+POST /api/notes
+{ "content": "Agent observation: deployment went ok #deploy #log" }
+
+# Update a note
+PATCH /api/notes/2026-04-04
+{ "content": "Updated content with new findings #deploy #log" }
+
+# Rename a note to something meaningful
+POST /api/notes/2026-04-04/rename
+{ "new_filename": "deploy-log-april.md" }
+```
+
+### Tips for agents
+
+- Use `#tags` in content to categorize notes — they are indexed automatically
+- Send `base_version` on `PATCH` when a human might have the note open — you get a `409` with their content instead of silently destroying their edit
+- `id` = filename without `.md` — use this in all endpoint paths
+- After a `rename`, the old `id` is gone — always use the new `id` returned in the response
+- Empty `PATCH` content moves the note to trash — undo via `GET /api/trash` + `POST /api/trash/{name}/restore`
+- `GET /api/notes/{id}/history` shows earlier versions of a note; fetch one and `PATCH` it back to restore
+- `[[note-name]]` in content becomes a clickable wiki-link in the UI preview — useful for cross-referencing notes
+- `GET /api/notes/{id}/raw` returns the file with YAML frontmatter if you need structured metadata
+
+### Example: Claude Code token creation
+
+```
+"Create a token called claude-code"
+→ POST /admin/tokens {"name": "claude-code"}
+← {"token": "tok_xyz..."}
+```
+
+---
+
+## Nginx Proxy Manager
+
+In NPM, set the Proxy Host to:
+- **Forward Hostname:** `hexnotes`
+- **Forward Port:** `8000`
+
+This works because HexNotes is on the `nginx_proxy_manager_default` Docker network.
+
+---
+
+## Tokens
+
+Tokens are stored in `tokens.json`, which is **bind-mounted** from the host into the container. This means:
+- Tokens survive `docker compose up -d --build` and image rebuilds
+- Tokens survive container restarts
+- Tokens are only lost if you delete `tokens.json` from the host
+
+The `tokens.json` file is **not** copied into the Docker image.
+
+---
+
+## Auto-sync Behavior
+
+The frontend keeps notes up to date via multiple mechanisms:
+
+| Trigger | Behavior |
+|---------|----------|
+| Typing stops (1s) | Autosave current note |
+| Every keystroke | Mirrored to a local draft until the server has it (see below) |
+| App hidden / note switched | Save pending text at once (`keepalive` when hiding) |
+| Every 5 seconds (visible tab) | Check the **open note** for edits made elsewhere |
+| Switch back to tab/app | Reload note list **+ open note** |
+| Browser window regains focus | Reload note list **+ open note** |
+| Every 30 seconds (visible tab) | Background poll of list **+ open note** |
+| Every 60 seconds (idle) | Background reload of note list |
+| Manual ↻ button (mobile) | Force reload |
+| Reconnect after offline | Save pending content, reload list |
+
+**When a fetch fails the sidebar says so.** A red box at the top of the list
+names the cause (server unreachable, `401`, or another status) and offers
+**Try again**; the last loaded list stays on screen, and a network failure also
+raises the offline bar. On mobile the app switches to the list view so the
+message is seen even with no note open. The box clears itself on the next
+successful load.
+
+**Order in the sidebar:** **All notes** is sorted by **last edit**, newest
+first, under the date headings Today, Yesterday, Last 7 days and Older (the
+viewer's local calendar days; empty headings are skipped), so a note you just
+saved moves to the top. Inside Ephemeral, Pinned and each tag group notes are
+sorted by **created** date, newest first, with last edit as the tie-breaker for
+notes created the same day. This is a frontend ordering only — `GET /api/notes`
+returns notes sorted by `updated_at`.
+
+**The open note updates too**, not just the sidebar — so a note edited by an AI
+agent or another device refreshes under you within ~5s: the open note is
+checked on its own every 5 seconds, and the 30-second list poll covers the rest.
+
+Two rules keep it safe:
+
+- An editor with **unsaved changes is never overwritten** — your typing always wins, and the update is deferred
+- Caret and scroll position survive the swap, so a refresh mid-read doesn't lose your place
+
+**Nothing typed is lost to a closed app.** Every keystroke is mirrored to
+`localStorage` (`hexnotes_drafts`) until the server confirms it. If the app is
+killed before that, the next start sends the draft up: onto the note if it is
+unchanged since the draft was typed, otherwise as a separate note, so it never
+overwrites anything. A grey dot top-right of the note means "not on the server
+yet"; a green check means saved.
+
+If both sides changed, the save is rejected (see `base_version` above) and a bar
+offers **Load theirs** or **Keep mine**. Choosing *Keep mine* still snapshots
+their version to `.history/` first, so nothing is lost either way.
+
+---
+
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+N` | New note |
+| `Ctrl+P` | Command palette — fuzzy-search and open any note |
+| `Ctrl+F` | Find in current note (match navigation with ↑↓, Shift+Enter/Enter) |
+| `Ctrl+Shift+B` | Toggle sidebar (also `Ctrl+\`, and plain `Ctrl+B` when the editor does not have focus) |
+| `Ctrl+M` | Toggle between the live (rendered, editable) view and the raw source |
+| `Ctrl+D` | Today's note — opens (or creates) `YYYY-MM-DD.md` for today |
+| `Alt+←` | Back to the previously viewed note |
+| `Ctrl+Delete` | Delete active note (confirmation dialog) |
+| `Escape` | Close palette / find bar / clear search |
+| `Tab` | Insert 2 spaces in editor |
+
+### Formatting (in the editor)
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+B` | **Bold** `**text**` |
+| `Ctrl+I` | *Italic* `*text*` |
+| `Ctrl+Shift+X` | ~~Strikethrough~~ `~~text~~` |
+| `Ctrl+E` | Inline code `` `text` `` |
+| `Ctrl+K` | Link: selected text becomes `[text](url)` with `url` selected to type or paste over; a selected URL becomes `[](URL)` |
+| `Ctrl+Shift+7` | Bullet list on/off for the selected lines (`Ctrl+Shift+/` on a Swedish keyboard is the same key) |
+| `Ctrl+Enter` | Tick/untick the checkbox on the line (all selected lines); a line without one becomes a `- [ ]` item |
+
+`Cmd` works in place of `Ctrl` on a Mac. How the wrapping shortcuts behave:
+
+- **They toggle.** Pressing the same shortcut again removes the markers, whether they sit just outside the selection or were selected along with the text. Bold and italic share `*` and stay independent: `Ctrl+I` on `**bold**` gives `***bold***`.
+- **No selection:** the word under the caret is wrapped (the caret stays put). Between words an empty pair is inserted with the caret inside, so `Ctrl+B`, type, `Ctrl+B` writes bold text and steps out of it; `Ctrl+B` on an empty pair removes it.
+- **Several lines** are wrapped one line at a time, since Markdown emphasis cannot cross a line break. List, checkbox, heading and quote markers stay outside: `- item` → `- **item**`.
+- **Undo works:** each shortcut is a single `Ctrl+Z` step, and the change autosaves like typing.
+- Shortcuts with `Alt` are left alone, so AltGr characters (`{`, `[`, `\` …) still type normally.
+
+---
+
+## Sidebar
+
+Notes are organized into collapsible groups:
+
+- **📌 Pinned** — notes pinned via the 📌 button in the filename bar
+- **📥 All notes** — every note that is not pinned or ephemeral, tagged or not, last edited first under date headings
+- **🏷 Tags** — parent group containing one sub-group per `#tag`
+
+Group collapse state is saved per-group in `localStorage`. A **collapse all / expand all** toggle is available at the top of the list.
+
+To organize notes into a tag group, add `#tagname` anywhere in the note body. Notes with multiple tags appear in each relevant group, and still appear in All notes.
+
+At the bottom of the sidebar: **🗑 Trash** opens the trash dialog, and a discreet **theme toggle** cycles auto → dark → light (auto follows the system preference; the choice is saved in `localStorage` and applied before first paint). The running app version is shown in the topbar next to the HexNotes title.
+
+---
+
+## Start Page (Home Note)
+
+If a note named `home.md` exists, the app opens it **in preview mode** on startup instead of the last-opened note. Combined with wiki links this makes a self-curated start page: fill it with `[[links]]` to your important notes and click your way from there. Clicking the **HexNotes** title in the topbar returns to the home note at any time.
+
+No `home.md`? The app falls back to the previous behaviour (last-opened note, or the most recent one).
+
+On a **fresh install** (completely empty notes directory) a starter `home.md` is seeded automatically at startup with a short feature guide — so a newly cloned instance opens on a start page rather than an empty list. It is never created or overwritten if any note already exists.
+
+---
+
+## Editing (Live Preview) & Wiki Links
+
+**Notes open rendered and editable** (since 1.43, Obsidian-style): headings, emphasis, code, links, quotes, lists and checkboxes are shown formatted, and you type straight into them. The markdown marks appear only on the element the caret is in — the heading line, the bold word, the link — so what you type is always exactly what is saved. The note on disk stays plain markdown.
+
+- `Ctrl+M` or the `</>` button — switches to the **raw source** (a plain textarea) and back
+- Formatting shortcuts, list continuation and autocomplete work the same in both
+- Click a link to open it, a `[[wiki link]]` to go to that note, a checkbox to tick it
+- Not yet rendered in live mode: tables and images (shown as markdown), and the backlinks footer
+- `?editor=classic` in the URL switches that device back to the pre-1.43 editor (textarea + read-only preview, double-click to edit); `?editor=live` returns to live preview. The choice is remembered per device
+
+**New notes start in the name field:** type a name and press `Enter` (or `Tab`/`↓`) to go to the text, or press `Enter` right away for the usual date-and-slug filename.
+
+The editor is CodeMirror 6, vendored as one prebuilt file (`static/vendor/codemirror-*.min.js`). Rebuild it with `scripts/cm-bundle/build.sh` (runs in a throwaway Node container; versions pinned in `scripts/cm-bundle/package.json`). The app itself has no build step, and falls back to the classic editor if the file fails to load.
+
+`[[note-name]]` in note text renders as a clickable link in the preview (matched case-insensitively against the note id, with or without `.md`). Clicking it opens that note and stays in preview mode, so you can browse linked notes like a wiki. Links to notes that don't exist are shown red/dashed. Implemented as a `marked` inline extension, so wiki links inside code blocks are left alone.
+
+**Autocomplete:** typing `[[` in the editor opens a dropdown that filters note names as you type. Arrow keys navigate, `Enter`/`Tab` inserts the link (closing `]]` included), `Escape` closes. Clicking a suggestion also inserts it. Typing `#` plus at least one character suggests existing tags the same way (the one-character minimum keeps it from firing on markdown headings).
+
+**Backlinks:** a muted "Linked from: …" footer at the bottom of the preview lists notes that `[[link]]` to the current one, with clickable links. Only shown when at least one backlink exists.
+
+**Task checkboxes:** `- [ ]` task lines render as real, clickable checkboxes in the preview. Ticking one updates the corresponding line in the note and autosaves — todo lists work straight from the rendered view, which is especially handy on mobile. (Task syntax inside fenced code blocks is ignored.)
+
+**Today's note:** the 📅 topbar button (or `Ctrl+D`) opens today's `YYYY-MM-DD.md`, creating it first if it doesn't exist — quick daily capture.
+
+---
+
+## Navigation History & Deep Links
+
+Every opened note gets a hash URL (`#note-id`) pushed to browser history:
+
+- **Back** works everywhere: the ← button in the filename row, `Alt+←`, the browser's back/forward buttons, and the phone's back gesture (which steps back through notes instead of closing the PWA).
+- The ← button only appears when there is an in-app entry to return to, and `Alt+←` is guarded the same way — back navigation never leaves the app.
+- **Deep links:** loading the app with `#note-id` in the URL opens that note directly — bookmark or share links to specific notes.
+- Renaming a note updates the URL in place. If a note in the history has been renamed or deleted, navigating back to it lands on the home note instead.
+
+---
+
+## Version History & Trash (UI)
+
+- **🕘 in the filename row** — lists earlier versions of the note (timestamp + preview). Click one to read it; **Restore** saves it back as the current content (the replaced state is snapshotted first, so a restore is always undoable).
+- **🗑 at the bottom of the sidebar** — lists deleted notes. Click one to read it; **Restore** moves it back (under a unique name if taken), **Delete forever** destroys the note *and* its history. **Empty trash** purges everything at once. All destructive buttons require a confirming second click.
+
+---
+
+## Search
+
+- **Topbar search** — live-filters the note list (300ms debounce). Clears with the `✕` button. When active, shows a flat results list (no grouping) with matching text highlighted in the filename and a content snippet showing the matching line. Matched text is highlighted in accent color.
+- **Command palette** (`Ctrl+P`) — floating overlay, fuzzy-searches filename + tags + content, opens note on Enter. Arrow keys navigate results.
+- **In-note find** (`Ctrl+F`) — find bar below filename row. Navigate matches with Enter / Shift+Enter or ↑↓ buttons. Shows `X / Y` match counter.
+
+---
+
+## Running Tests
+
+```bash
+docker compose run --rm hexnotes pytest tests/ -v --tb=short
+```
+
+237 tests (86 of them in browser tests, which run locally only — see below):
+
+| File | Covers |
+|------|--------|
+| `tests/test_unit.py` | Slug generation, tag extraction, frontmatter parsing, filename sanitization |
+| `tests/test_api.py` | Auth, CRUD, search, rename (incl. path traversal), tokens, health |
+| `tests/test_history.py` | Version history: snapshots, ordering, restore round-trip, rename migration, traversal rejection |
+| `tests/test_trash.py` | Trash: listing, restore (incl. collision), purge, history migration, legacy files, traversal rejection |
+| `tests/test_conflict.py` | Optimistic concurrency: `version` field, `base_version` accept/reject, 409 payload, stale-trash guard |
+| `tests/test_ephemeral.py` | Ephemeral notes: TTL frontmatter, expiry sweep |
+| `tests/test_ephemeral_ui.py` | Ephemeral rendering in the sidebar |
+| `tests/test_rename_ttl.py` | TTL survives rename |
+| `tests/test_fab.py` | Mobile FAB long-press ephemeral flow |
+| `tests/test_list_ui.py` | Sidebar list errors, created-date ordering, All notes with date headings |
+| `tests/test_format_shortcuts.py` | Formatting shortcuts in a real browser: the transforms case by case, then the keys in the running app (undo, autosave, sidebar shortcut, AltGr, preview) — pinned to the classic editor |
+| `tests/test_live_editor.py` | Live-preview editor in a real browser: hidden marks, checkboxes, autosave, format keys, list continuation, source toggle, `[[` autocomplete and navigation, undo per note, new-note name field, `?editor=classic` |
+| `tests/test_drafts.py` | Unsaved text survives a closed app: local drafts, save on hide, restore onto an unchanged note or as a separate note, back-to-back new notes |
+
+The browser tests (`test_format_shortcuts.py`, `test_live_editor.py`, `test_drafts.py`) drive Chromium through Playwright, which the Docker image does not ship, so they skip there. Run it locally:
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt playwright
+PYTHONPATH=. .venv/bin/pytest tests/test_format_shortcuts.py -v
+```
+
+It uses Playwright's own Chromium if installed (`.venv/bin/playwright install chromium`) and falls back to `/usr/bin/google-chrome`.
+
+Other frontend features (palette, find bar, preview, dialogs) do not have automated browser tests.
+
+---
+
+## Security & Data Lifecycle
+
+**Deleted ≠ destroyed.** A deleted note lives on in `.trash/` and its version history in `.trash/.history/` — and anyone with a valid API token can list and restore it. Likewise, editing a secret *out* of a live note keeps it in the note's history. To truly destroy sensitive content (e.g. a note that contained an API key):
+
+1. Delete the note (moves it to trash, history included)
+2. `DELETE /api/trash/{name}` — or **Radera permanent** in the trash dialog — removes the file *and* its entire history from disk
+
+Also keep in mind that filesystem backups of `notes/` contain copies of everything, including trash and history.
+
+**Other guarantees:**
+- All filenames from clients are sanitized; history versions and trash names are strictly validated — no path traversal into or out of `notes/`
+- Nothing is ever overwritten: trash entries are timestamped, restores get a unique name on collision, history snapshots have microsecond timestamps
+- All tokens have full access (there are no scopes) — trash and history sit at the same trust level as the notes themselves
+- Token and admin-secret comparisons are constant-time; `tokens.json` is written mode `0600`
+- Rendered markdown is sanitized with DOMPurify, and every response carries a Content-Security-Policy. `connect-src 'self'` means even a successful XSS could not send your token or notes to another host
+- `marked`, `DOMPurify` and CodeMirror are pinned and served from `static/vendor/` rather than a CDN — a CDN with the power to swap out the sanitizer could read the token straight out of `localStorage`
+
+**Known exposure, accepted for a single-user private deployment:**
+- The API token is stored in `localStorage`, so any XSS that gets past DOMPurify and the CSP can read it
+- `ADMIN_SECRET` is a human-chosen password with no rate limiting or lockout — it must be long and random, and the app should not be exposed to the open internet without TLS (and ideally an IP allowlist in Nginx Proxy Manager)
+- `/docs` (Swagger UI) and `/openapi.json` are disabled by default since 1.32 — they revealed the API shape without a token. Set `HEXNOTES_DOCS=1` in the container environment to enable them for local development
+- The container runs as root. Running as a non-root user is safer, but changing it now requires `chown`-ing the existing `notes/` volume to match
+
+---
+
+## Versioning
+
+`major.minor`, kept in `APP_VERSION` in `backend/main.py` — single source of truth, exposed via `GET /health` and shown in the topbar. Bump **minor** for new features, **major** for breaking changes (API incompatibility or storage format changes requiring migration). Document each release in [CHANGELOG.md](CHANGELOG.md).
+
+The service worker cache name (`hexnotes-vN` in `static/sw.js`) is deliberately **not** tied to the app version: since the app shell is fetched network-first, deploys reach clients without cache bumps. Only bump it when the caching strategy itself changes.
+
+---
+
+## Notes on `.env`
+
+```env
+ADMIN_SECRET=your-strong-ascii-secret
+```
+
+- Must be ASCII-only (no `ö`, `å`, `ä` or other non-ASCII characters)
+- Never use the same value as a regular API token
+- Change from the default before exposing the app externally

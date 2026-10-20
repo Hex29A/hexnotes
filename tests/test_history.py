@@ -1,0 +1,167 @@
+# === Versionshistorik ===
+import re
+
+
+def _create(client, auth, content, filename="hist.md"):
+    return client.post("/api/notes", json={"content": content, "filename": filename}, headers=auth).json()
+
+
+def test_history_requires_auth(client):
+    r = client.get("/api/notes/whatever/history")
+    assert r.status_code == 401
+
+
+def test_history_note_not_found_returns_404(client, auth):
+    r = client.get("/api/notes/finns-inte/history", headers=auth)
+    assert r.status_code == 404
+
+
+def test_history_empty_for_new_note(client, auth):
+    created = _create(client, auth, "Hej")
+    r = client.get(f"/api/notes/{created['id']}/history", headers=auth)
+    assert r.status_code == 200
+    assert r.json() == []
+
+
+def test_patch_creates_history_version(client, auth, tmp_notes):
+    created = _create(client, auth, "Version ett")
+    client.patch(f"/api/notes/{created['id']}", json={"content": "Version två"}, headers=auth)
+    r = client.get(f"/api/notes/{created['id']}/history", headers=auth)
+    versions = r.json()
+    assert len(versions) == 1
+    assert versions[0]["preview"] == "Version ett"
+    assert (tmp_notes / ".history" / created["id"]).is_dir()
+
+
+def test_history_sorted_newest_first(client, auth):
+    created = _create(client, auth, "Ett")
+    client.patch(f"/api/notes/{created['id']}", json={"content": "Två"}, headers=auth)
+    client.patch(f"/api/notes/{created['id']}", json={"content": "Tre"}, headers=auth)
+    versions = client.get(f"/api/notes/{created['id']}/history", headers=auth).json()
+    assert [v["preview"] for v in versions] == ["Två", "Ett"]
+
+
+def test_history_entry_fields(client, auth):
+    created = _create(client, auth, "Version ett")
+    client.patch(f"/api/notes/{created['id']}", json={"content": "Version två"}, headers=auth)
+    entry = client.get(f"/api/notes/{created['id']}/history", headers=auth).json()[0]
+    assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{6}$", entry["version"])
+    assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$", entry["timestamp"])
+    assert "preview" in entry
+
+
+def test_get_specific_version_returns_content(client, auth):
+    created = _create(client, auth, "Version ett")
+    client.patch(f"/api/notes/{created['id']}", json={"content": "Version två"}, headers=auth)
+    version = client.get(f"/api/notes/{created['id']}/history", headers=auth).json()[0]["version"]
+    r = client.get(f"/api/notes/{created['id']}/history/{version}", headers=auth)
+    assert r.status_code == 200
+    data = r.json()
+    assert data["content"] == "Version ett"
+    assert data["version"] == version
+
+
+def test_get_version_content_excludes_frontmatter(client, auth):
+    created = _create(client, auth, "Text #docker")
+    client.patch(f"/api/notes/{created['id']}", json={"content": "Nytt"}, headers=auth)
+    version = client.get(f"/api/notes/{created['id']}/history", headers=auth).json()[0]["version"]
+    r = client.get(f"/api/notes/{created['id']}/history/{version}", headers=auth)
+    assert "---" not in r.json()["content"]
+
+
+def test_get_version_not_found_returns_404(client, auth):
+    created = _create(client, auth, "Text")
+    r = client.get(f"/api/notes/{created['id']}/history/2020-01-01T00-00-00-000000", headers=auth)
+    assert r.status_code == 404
+
+
+def test_get_version_invalid_name_returns_404(client, auth):
+    created = _create(client, auth, "Text")
+    r = client.get(f"/api/notes/{created['id']}/history/inte-en-version", headers=auth)
+    assert r.status_code == 404
+
+
+def test_patch_unchanged_content_creates_no_version(client, auth):
+    created = _create(client, auth, "Samma text")
+    client.patch(f"/api/notes/{created['id']}", json={"content": "Samma text"}, headers=auth)
+    versions = client.get(f"/api/notes/{created['id']}/history", headers=auth).json()
+    assert versions == []
+
+
+def test_trash_via_empty_patch_creates_snapshot(client, auth, tmp_notes):
+    created = _create(client, auth, "Snart borta")
+    client.patch(f"/api/notes/{created['id']}", json={"content": ""}, headers=auth)
+    # The history follows the note into the trash
+    snapshots = list((tmp_notes / ".trash" / ".history").glob(f"*__{created['id']}/*.md"))
+    assert len(snapshots) == 1
+    assert "Snart borta" in snapshots[0].read_text()
+
+
+def test_rename_moves_history(client, auth, tmp_notes):
+    created = _create(client, auth, "Version ett", filename="gammal.md")
+    client.patch("/api/notes/gammal", json={"content": "Version två"}, headers=auth)
+    client.post("/api/notes/gammal/rename", json={"new_filename": "ny.md"}, headers=auth)
+    versions = client.get("/api/notes/ny/history", headers=auth).json()
+    assert len(versions) == 1
+    assert versions[0]["preview"] == "Version ett"
+    assert not (tmp_notes / ".history" / "gammal").exists()
+
+
+def test_restore_via_patch_adds_new_version(client, auth):
+    """Restoring is done as a plain PATCH with the old content."""
+    created = _create(client, auth, "Version ett")
+    client.patch(f"/api/notes/{created['id']}", json={"content": "Version två"}, headers=auth)
+    version = client.get(f"/api/notes/{created['id']}/history", headers=auth).json()[0]["version"]
+    old = client.get(f"/api/notes/{created['id']}/history/{version}", headers=auth).json()["content"]
+    r = client.patch(f"/api/notes/{created['id']}", json={"content": old}, headers=auth)
+    assert r.status_code == 200
+    assert r.json()["content"] == "Version ett"
+    versions = client.get(f"/api/notes/{created['id']}/history", headers=auth).json()
+    assert [v["preview"] for v in versions] == ["Version två", "Version ett"]
+
+
+# === Pruning: history used to grow without bound ===
+
+def test_history_is_capped(client, auth, tmp_notes):
+    from backend.main import HISTORY_MAX_VERSIONS, _history_dir
+    r = client.post("/api/notes", json={"content": "v0", "filename": "gallring.md"}, headers=auth)
+    note_id = r.json()["id"]
+    for i in range(HISTORY_MAX_VERSIONS + 12):
+        client.patch(f"/api/notes/{note_id}", json={"content": f"v{i + 1}"}, headers=auth)
+    kept = sorted(_history_dir(note_id).glob("*.md"))
+    assert len(kept) == HISTORY_MAX_VERSIONS
+
+
+def test_pruning_keeps_the_newest(client, auth, tmp_notes):
+    from backend.main import HISTORY_MAX_VERSIONS, _history_dir
+    r = client.post("/api/notes", json={"content": "v0", "filename": "nyast.md"}, headers=auth)
+    note_id = r.json()["id"]
+    for i in range(HISTORY_MAX_VERSIONS + 5):
+        client.patch(f"/api/notes/{note_id}", json={"content": f"v{i + 1}"}, headers=auth)
+    versions = sorted(_history_dir(note_id).glob("*.md"))
+    newest = versions[-1].read_text(encoding="utf-8")
+    assert "v" + str(HISTORY_MAX_VERSIONS + 4) in newest
+    listed = client.get(f"/api/notes/{note_id}/history", headers=auth).json()
+    assert len(listed) == HISTORY_MAX_VERSIONS
+
+
+def test_pruning_leaves_foreign_files_alone(client, auth, tmp_notes):
+    """Only files matching the version pattern may be touched."""
+    from backend.main import HISTORY_MAX_VERSIONS, _history_dir
+    r = client.post("/api/notes", json={"content": "v0", "filename": "frammande.md"}, headers=auth)
+    note_id = r.json()["id"]
+    client.patch(f"/api/notes/{note_id}", json={"content": "v1"}, headers=auth)
+    stray = _history_dir(note_id) / "anteckning.md"
+    stray.write_text("inte en version", encoding="utf-8")
+    for i in range(HISTORY_MAX_VERSIONS + 3):
+        client.patch(f"/api/notes/{note_id}", json={"content": f"w{i}"}, headers=auth)
+    assert stray.exists()
+
+
+def test_history_under_the_cap_is_untouched(client, auth, tmp_notes):
+    from backend.main import _history_dir
+    r = client.post("/api/notes", json={"content": "a", "filename": "fa.md"}, headers=auth)
+    note_id = r.json()["id"]
+    for c in ("b", "c", "d"):
+        client.patch(f"/api/notes/{note_id}", json={"content": c}, headers=auth)
+    assert len(list(_history_dir(note_id).glob("*.md"))) == 3

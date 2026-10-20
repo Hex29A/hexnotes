@@ -1,0 +1,1040 @@
+import asyncio
+import hashlib
+import json
+import mimetypes
+import os
+import re
+import secrets
+import shutil
+from contextlib import asynccontextmanager, suppress
+from datetime import datetime, date, timedelta, UTC
+from pathlib import Path
+from typing import Optional
+
+import yaml
+from fastapi import FastAPI, HTTPException, Depends, Request, Query
+from fastapi.responses import PlainTextResponse, Response
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+# The container's system mimetypes database has no .woff2 entry, so
+# StaticFiles was serving it as text/plain — combined with the
+# X-Content-Type-Options: nosniff header below, Safari refuses to apply a
+# font served with the wrong MIME type and silently falls back to a system
+# font. Chrome/Firefox aren't as strict, so this only showed on iOS.
+mimetypes.add_type("font/woff2", ".woff2")
+
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
+APP_VERSION = "1.47"  # bump minor for features, major for breaking changes — see CHANGELOG.md
+
+# Upper bound on GET /api/notes?limit=. The frontend asks for 200, so the
+# cap sits above that rather than on it, leaving room to raise the client
+# side without touching the server.
+MAX_PAGE_SIZE = 500
+
+NOTES_PATH = Path("/app/notes")
+TRASH_PATH = NOTES_PATH / ".trash"
+TOKENS_FILE = Path("/app/tokens.json")
+
+# Swagger UI (/docs) and /openapi.json are off unless HEXNOTES_DOCS=1. They need
+# no token and expose the full route map; every endpoint behind them still
+# requires auth, but there is no reason to hand out the map on a public host.
+_DOCS_ON = os.environ.get("HEXNOTES_DOCS") == "1"
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Replaces the deprecated @app.on_event("startup").
+
+    startup() and _expiry_loop() are defined further down the module; Python
+    resolves them when this runs, not when it is defined. The sweep task is
+    kept on app.state because asyncio only holds a weak reference to running
+    tasks — a bare create_task() can be collected mid-loop — and so shutdown
+    has something to cancel.
+    """
+    await startup()
+    app.state.expiry_task = asyncio.create_task(_expiry_loop())
+    try:
+        yield
+    finally:
+        app.state.expiry_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await app.state.expiry_task
+
+
+app = FastAPI(
+    title="HexNotes",
+    version=APP_VERSION,
+    docs_url="/docs" if _DOCS_ON else None,
+    redoc_url=None,
+    openapi_url="/openapi.json" if _DOCS_ON else None,
+    lifespan=lifespan,
+)
+
+
+# Defence in depth for the one place untrusted-ish content is rendered: note
+# markdown. DOMPurify is the primary XSS guard; if it is ever bypassed, the CSP
+# still blocks loading foreign scripts and — via connect-src — stops a payload
+# from posting the localStorage API token off-box.
+# 'unsafe-inline' for scripts is unavoidable: index.html is a single file with
+# inline <script> blocks served straight off disk, so there is no nonce to add.
+CSP = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "font-src 'self'; "
+    "img-src 'self' data:; "
+    "connect-src 'self'; "
+    "form-action 'none'; "
+    "frame-ancestors 'none'; "
+    "base-uri 'none'; "
+    "object-src 'none'"
+)
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    # /docs is Swagger UI, which pulls its own JS/CSS from a CDN — applying the
+    # app CSP there would just break it. The app itself never loads /docs.
+    if not request.url.path.startswith("/docs"):
+        response.headers.setdefault("Content-Security-Policy", CSP)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    return response
+
+# ---------------------------------------------------------------------------
+# In-memory token list (source of truth at runtime)
+# ---------------------------------------------------------------------------
+TOKENS: list[dict] = []
+
+# ---------------------------------------------------------------------------
+# Models
+# ---------------------------------------------------------------------------
+
+class NoteOut(BaseModel):
+    id: str
+    filename: str
+    content: str
+    tags: list[str]
+    created_at: Optional[str]
+    updated_at: str
+    preview: str
+    is_timeless: bool
+    pinned: bool
+    version: str
+    expires_at: Optional[str] = None
+    snippet: Optional[str] = None
+
+class NoteCreate(BaseModel):
+    content: str = ""
+    filename: Optional[str] = None
+    ttl_hours: Optional[int] = None  # ephemeral note: auto-trash after N hours (24/48)
+
+class NoteUpdate(BaseModel):
+    content: str
+    # Optimistic concurrency: the version the client based its edit on.
+    # Omitted → unconditional write (backwards compatible).
+    base_version: Optional[str] = None
+
+class NoteRename(BaseModel):
+    new_filename: str
+
+class TrashEntryOut(BaseModel):
+    name: str
+    original_filename: str
+    deleted_at: str
+    preview: str
+
+class TrashContentOut(BaseModel):
+    name: str
+    original_filename: str
+    deleted_at: str
+    content: str
+
+class HistoryEntryOut(BaseModel):
+    version: str
+    timestamp: str
+    preview: str
+
+class HistoryVersionOut(BaseModel):
+    version: str
+    timestamp: str
+    content: str
+
+class TokenCreate(BaseModel):
+    name: str
+
+class TokenOut(BaseModel):
+    name: str
+    token: str
+    created_at: str
+
+# ---------------------------------------------------------------------------
+# In-memory index
+# ---------------------------------------------------------------------------
+# \s* after the closing --- would eat into the body: \s matches newlines and
+# spaces alike, so a note whose first line began with a space or a blank line
+# lost that character on every save. Only trailing blanks on the fence line
+# itself belong to the fence.
+FRONTMATTER_RE = re.compile(r"^---[ \t]*\n(.*?)\n---[ \t]*(?:\n|$)", re.DOTALL)
+TAG_RE = re.compile(r"(?:^|(?<=\s))#([a-zA-Z0-9_\-åäöÅÄÖ]+)", re.MULTILINE)
+
+notes_index: dict[str, dict] = {}
+
+
+# ---------------------------------------------------------------------------
+# Public helper functions (used by tests)
+# ---------------------------------------------------------------------------
+
+def created_at_from_filename(filename: str) -> Optional[str]:
+    stem = filename.replace(".md", "") if filename.endswith(".md") else filename
+    m = re.match(r"^(\d{4}-\d{2}-\d{2})(?:-|$)", stem)
+    return m.group(1) if m else None
+
+
+def extract_tags(text: str) -> list[str]:
+    return sorted(set(TAG_RE.findall(text)))
+
+
+def parse_frontmatter(raw: str) -> tuple[dict, str]:
+    m = FRONTMATTER_RE.match(raw)
+    meta = {}
+    if m:
+        try:
+            meta = yaml.safe_load(m.group(1)) or {}
+        except yaml.YAMLError:
+            meta = {}
+    body = raw[m.end():] if m else raw
+    return meta, body
+
+
+def sanitize_filename(filename: str) -> str:
+    filename = filename.replace("\\", "/")
+    filename = filename.split("/")[-1]
+    filename = filename.replace("..", "")
+    filename = filename.lstrip(".")
+    if not filename or filename == ".md":
+        filename = "untitled"
+    if not filename.endswith(".md"):
+        filename += ".md"
+    return filename
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+DATE_ONLY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def normalize_expiry(value) -> Optional[str]:
+    """Any stored expires_at → one canonical ISO 8601 string, or None.
+
+    YAML used to turn an unquoted timestamp back into a datetime, whose str()
+    is space-separated ("2026-09-17 22:59:21+00:00") rather than ISO. That
+    string then lost every comparison against datetime.isoformat() — see the
+    early-sweep bug. Everything now passes through here, so what the API hands
+    out and what the sweep compares are the same shape.
+    """
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat(timespec="seconds")
+    return str(value).replace(" ", "T", 1)
+
+
+def _midnight_utc(date_str: str) -> str:
+    """"2026-04-10" → "2026-04-10T00:00:00+00:00".
+
+    A date carries no zone of its own; pinning it to UTC keeps created_at in
+    the same base as updated_at instead of leaving the client to guess.
+    """
+    return date_str + "T00:00:00+00:00"
+
+
+def parse_expiry(value) -> Optional[datetime]:
+    """Stored expires_at → an aware datetime, or None when it is unreadable.
+
+    None means "cannot tell", and the sweep lets such a note live rather than
+    trashing it on a value it failed to parse.
+    """
+    iso = normalize_expiry(value)
+    if not iso:
+        return None
+    try:
+        dt = datetime.fromisoformat(iso)
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+
+
+def _build_frontmatter(tags: list[str], created: Optional[str], pinned: bool = False, expires_at: Optional[str] = None) -> str:
+    """Frontmatter via safe_dump, never string formatting.
+
+    An f-string here let any newline inside created/expires_at open a
+    frontmatter line of its own, so a note could grow fields (pinned, a fresh
+    expires_at) that no API call ever set. A plain date stays unquoted and a
+    tag list stays inline, so ordinary notes are written byte for byte as
+    before; only values that need quoting get it.
+    """
+    fields: dict = {"tags": tags}
+    # date over str so YAML writes 2026-04-10, not '2026-04-10'
+    fields["created"] = (
+        date.fromisoformat(created)
+        if created and DATE_ONLY_RE.match(str(created))
+        else created or None
+    )
+    if pinned:
+        fields["pinned"] = True
+    if expires_at:
+        fields["expires_at"] = normalize_expiry(expires_at)
+    body = yaml.safe_dump(
+        fields,
+        sort_keys=False,
+        allow_unicode=True,
+        default_flow_style=None,  # inline tag list, block for the rest
+        width=10**6,              # never wrap a long tag line
+    )
+    return "---" + chr(10) + body + "---" + chr(10)
+
+
+def _write_note_with_frontmatter(path: Path, content: str, created: Optional[str], pinned: bool = False, expires_at: Optional[str] = None):
+    tags = extract_tags(content)
+    fm = _build_frontmatter(tags, created, pinned, expires_at)
+    path.write_text(fm + content, encoding="utf-8")
+
+
+
+def _first_line(content: str, max_len: int = 80) -> str:
+    """First non-blank line, truncated — used for every note/trash preview."""
+    for line in content.strip().splitlines():
+        stripped = line.strip()
+        if stripped:
+            return stripped[:max_len]
+    return ""
+
+
+def content_version(content: str) -> str:
+    """Short content hash used as an optimistic-concurrency token.
+
+    Deliberately not derived from mtime: updated_at only has second
+    resolution, so two writes within the same second would be
+    indistinguishable — exactly the race this guards against.
+    """
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
+
+
+def parse_note(path: Path) -> dict:
+    raw = path.read_text(encoding="utf-8")
+    meta, content = parse_frontmatter(raw)
+
+    stem = path.stem
+    stat = path.stat()
+    # UTC, not naive local time. expires_at and the trash timestamps have
+    # always been UTC, so a naive updated_at put two time bases in one
+    # response — and a client in another zone than the container read it as
+    # its own local time, silently hours off.
+    updated_at = datetime.fromtimestamp(stat.st_mtime, UTC).isoformat(timespec="seconds")
+
+    date_str = created_at_from_filename(path.name)
+    if date_str:
+        created_at = _midnight_utc(date_str)
+    elif meta.get("created"):
+        raw_created = meta["created"]
+        if isinstance(raw_created, date) or DATE_ONLY_RE.match(str(raw_created)):
+            # A quoted date in the file is the same instant as a bare one
+            created_at = _midnight_utc(str(raw_created))
+        else:
+            created_at = str(raw_created)
+    else:
+        created_at = updated_at
+
+    tags = extract_tags(content)
+    pinned = bool(meta.get("pinned", False))
+    expires_at = normalize_expiry(meta.get("expires_at"))
+
+    preview = _first_line(content)
+
+    return {
+        "id": stem,
+        "filename": path.name,
+        "content": content,
+        "tags": tags,
+        "created_at": created_at,
+        "updated_at": updated_at,
+        "preview": preview,
+        "is_timeless": date_str is None,
+        "pinned": pinned,
+        "version": content_version(content),
+        "expires_at": expires_at,
+    }
+
+
+def build_index():
+    notes_index.clear()
+    for f in sorted(NOTES_PATH.glob("*.md")):
+        if f.name.startswith("."):
+            continue
+        try:
+            notes_index[f.stem] = parse_note(f)
+        except Exception:
+            pass
+
+
+def invalidate(note_id: str):
+    p = NOTES_PATH / f"{note_id}.md"
+    if p.exists():
+        notes_index[note_id] = parse_note(p)
+
+
+def invalidate_rename(old_id: str, new_id: str):
+    notes_index.pop(old_id, None)
+    p = NOTES_PATH / f"{new_id}.md"
+    if p.exists():
+        notes_index[new_id] = parse_note(p)
+
+
+def invalidate_delete(note_id: str):
+    notes_index.pop(note_id, None)
+
+
+# ---------------------------------------------------------------------------
+# Version history
+# ---------------------------------------------------------------------------
+HISTORY_DIRNAME = ".history"
+# Autosave made a new snapshot on every change and nothing ever cleaned up:
+# 1140 versions, 4.8 MB, for 161 notes, one of which accounted for 215. The cap
+# is per note and kicks in on the next save, so old history is pruned gradually
+# rather than in one sweep.
+HISTORY_MAX_VERSIONS = 50
+VERSION_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{6}$")
+
+
+def _history_dir(note_id: str) -> Path:
+    return NOTES_PATH / HISTORY_DIRNAME / note_id
+
+
+def _prune_history(note_id: str) -> int:
+    """Keep the HISTORY_MAX_VERSIONS newest versions. Returns the number
+    deleted.
+
+    Version names are fixed-width timestamps, so lexicographic order is
+    chronological order. Only files matching VERSION_RE are touched —
+    anything else that happens to be in the directory is left alone.
+    """
+    hist = _history_dir(note_id)
+    if not hist.is_dir():
+        return 0
+    versions = sorted(f for f in hist.glob("*.md") if VERSION_RE.match(f.stem))
+    excess = len(versions) - HISTORY_MAX_VERSIONS
+    if excess <= 0:
+        return 0
+    removed = 0
+    for f in versions[:excess]:
+        try:
+            f.unlink()
+            removed += 1
+        except OSError:
+            pass
+    return removed
+
+
+def _snapshot_note(note_id: str):
+    """Save the current version of the note to .history/<note_id>/<timestamp>.md"""
+    path = NOTES_PATH / f"{note_id}.md"
+    if not path.exists():
+        return
+    hist = _history_dir(note_id)
+    hist.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now(UTC).strftime("%Y-%m-%dT%H-%M-%S-%f")
+    (hist / f"{ts}.md").write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+    _prune_history(note_id)
+
+
+def _version_timestamp(version: str) -> str:
+    """2026-06-10T08-30-00-123456 → 2026-06-10T08:30:00 (UTC)"""
+    date_part, time_part = version.split("T")
+    h, m, s, _us = time_part.split("-")
+    return f"{date_part}T{h}:{m}:{s}"
+
+
+# ---------------------------------------------------------------------------
+# Trash
+# ---------------------------------------------------------------------------
+TRASH_NAME_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{6})__(.+\.md)$")
+
+
+def _move_to_trash(note_id: str) -> str:
+    """Move the note to the trash under a timestamped name (never
+    overwrites) and take its history along to .trash/.history/. A final
+    snapshot is taken first so the history is complete."""
+    path = NOTES_PATH / f"{note_id}.md"
+    _snapshot_note(note_id)
+    ts = datetime.now(UTC).strftime("%Y-%m-%dT%H-%M-%S-%f")
+    trash_name = f"{ts}__{path.name}"
+    TRASH_PATH.mkdir(parents=True, exist_ok=True)
+    path.rename(TRASH_PATH / trash_name)
+    hist = _history_dir(note_id)
+    if hist.is_dir():
+        dest = TRASH_PATH / ".history" / f"{ts}__{note_id}"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        hist.rename(dest)
+    return trash_name
+
+
+def _trash_entry_path(name: str) -> Path:
+    """Strictly validate a trash name and return its path, otherwise 404."""
+    if (
+        "/" in name or "\\" in name or ".." in name
+        or name.startswith(".") or not name.endswith(".md")
+    ):
+        raise HTTPException(status_code=404, detail="Not found in trash")
+    p = TRASH_PATH / name
+    if not p.is_file():
+        raise HTTPException(status_code=404, detail="Not found in trash")
+    return p
+
+
+def _trash_meta(p: Path) -> tuple[str, str]:
+    """(original filename, deletion time) for a trash file.
+    Files from before timestamped names fall back on mtime."""
+    m = TRASH_NAME_RE.match(p.name)
+    if m:
+        return m.group(2), _version_timestamp(m.group(1))
+    mtime = datetime.fromtimestamp(p.stat().st_mtime, UTC).strftime("%Y-%m-%dT%H:%M:%S")
+    return p.name, mtime
+
+
+# ---------------------------------------------------------------------------
+# Token helpers
+# ---------------------------------------------------------------------------
+
+def _load_tokens_from_file():
+    global TOKENS
+    try:
+        data = json.loads(TOKENS_FILE.read_text(encoding="utf-8"))
+        TOKENS[:] = data.get("tokens", [])
+    except Exception:
+        pass
+
+
+def _save_tokens_to_file():
+    try:
+        TOKENS_FILE.write_text(
+            json.dumps({"tokens": TOKENS}, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        # Bearer tokens in cleartext — keep them off world-readable mode bits.
+        os.chmod(TOKENS_FILE, 0o600)
+    except OSError as exc:
+        # Losing this write means a token that works until restart, then
+        # vanishes. Silent failure would be genuinely confusing.
+        print(f"[tokens] failed to persist {TOKENS_FILE}: {exc}", flush=True)
+
+
+# ---------------------------------------------------------------------------
+# Auth dependencies
+# ---------------------------------------------------------------------------
+
+async def require_token(request: Request) -> str:
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+    token = auth[7:]
+    # compare_digest against every token: constant-time per comparison and no
+    # early exit, so a wrong token leaks nothing through response timing.
+    # Compared as bytes — the str form raises TypeError on non-ASCII input.
+    token_b = token.encode("utf-8", "surrogateescape")
+    matched = False
+    for t in TOKENS:
+        if secrets.compare_digest(token_b, str(t["token"]).encode("utf-8")):
+            matched = True
+    if not matched:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    return token
+
+
+async def require_admin(request: Request) -> str:
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+    token = auth[7:]
+    admin_secret = os.environ.get("ADMIN_SECRET", "")
+    if not admin_secret or not secrets.compare_digest(
+        token.encode("utf-8", "surrogateescape"), admin_secret.encode("utf-8")
+    ):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    return token
+
+
+# ---------------------------------------------------------------------------
+# Unique filename
+# ---------------------------------------------------------------------------
+
+def _unique_filename(desired: str) -> str:
+    if not desired.endswith(".md"):
+        desired += ".md"
+    if not (NOTES_PATH / desired).exists():
+        return desired
+    stem = desired[:-3]
+    for i in range(2, 10000):
+        candidate = f"{stem}-{i}.md"
+        if not (NOTES_PATH / candidate).exists():
+            return candidate
+    raise HTTPException(status_code=500, detail="Could not generate unique filename")
+
+
+# ---------------------------------------------------------------------------
+# Startup
+# ---------------------------------------------------------------------------
+
+# Seeded into a completely empty notes directory so a fresh install opens on
+# a start page instead of an empty list. Never touched if any note exists.
+HOME_SEED = """# Welcome to HexNotes
+
+This is your **home note** — it opens every time you start the app.
+Make it yours: fill it with [[wiki-links]] to your important notes.
+
+## Quick start
+
+- **+ New** (or `Ctrl+N`) creates a note: type a name and press Enter, or just Enter for a dated one. `#tags` anywhere in the text become sidebar groups.
+- **📅** (or `Ctrl+D`) opens today's daily note.
+- Notes open rendered and you write straight into them; the markdown shows where the caret is. `Ctrl+M` shows the raw source.
+- Type `[[` in the editor to link to another note, with autocomplete.
+- Task lists are live in the rendered view:
+  - [ ] try ticking this checkbox
+- **←** in the note header (or the browser/phone back button) returns to the previous note.
+"""
+
+
+def _sweep_expired() -> int:
+    """Move notes with an expired expires_at to the trash. Returns the count.
+
+    Compares as datetime. The old string comparison ran on the ISO text, where
+    a space sorts before "T" — as soon as the date part matched the note
+    counted as expired, and an ephemeral note died at midnight UTC instead of
+    at its TTL.
+    """
+    now = datetime.now(UTC)
+    count = 0
+    for note_id, note in list(notes_index.items()):
+        exp = parse_expiry(note.get("expires_at"))
+        if exp is None:
+            continue
+        if exp <= now:
+            try:
+                _move_to_trash(note_id)
+                invalidate_delete(note_id)
+                count += 1
+            except OSError:
+                pass
+    return count
+
+
+async def _expiry_loop():
+    while True:
+        await asyncio.sleep(600)
+        try:
+            _sweep_expired()
+        except Exception:
+            pass
+
+
+async def startup():
+    """Kept as a plain function so tests can call it directly."""
+    if not TOKENS_FILE.exists():
+        try:
+            TOKENS_FILE.write_text('{"tokens": []}', encoding="utf-8")
+            os.chmod(TOKENS_FILE, 0o600)
+        except OSError:
+            pass
+    _load_tokens_from_file()
+    TRASH_PATH.mkdir(parents=True, exist_ok=True)
+    if not any(NOTES_PATH.glob("*.md")):
+        try:
+            (NOTES_PATH / "home.md").write_text(HOME_SEED, encoding="utf-8")
+        except Exception:
+            pass
+    build_index()
+    expired = _sweep_expired()
+    if expired:
+        print(f"[startup] {expired} ephemeral note(s) expired → trash", flush=True)
+
+
+# ---------------------------------------------------------------------------
+# Health
+# ---------------------------------------------------------------------------
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "notes_count": len(notes_index), "version": APP_VERSION}
+
+
+# ---------------------------------------------------------------------------
+# Admin endpoints
+# ---------------------------------------------------------------------------
+
+@app.post("/admin/tokens", response_model=TokenOut)
+async def create_token(body: TokenCreate, _=Depends(require_admin)):
+    for t in TOKENS:
+        if t["name"] == body.name:
+            raise HTTPException(status_code=409, detail=f"Token with name '{body.name}' already exists")
+    new_token = {
+        "name": body.name,
+        "token": "tok_" + secrets.token_hex(16),
+        "created_at": datetime.now(UTC).isoformat(timespec="seconds"),
+    }
+    TOKENS.append(new_token)
+    _save_tokens_to_file()
+    return new_token
+
+
+@app.delete("/admin/tokens/{name}")
+async def revoke_token(name: str, _=Depends(require_admin)):
+    original_len = len(TOKENS)
+    TOKENS[:] = [t for t in TOKENS if t["name"] != name]
+    if len(TOKENS) == original_len:
+        raise HTTPException(status_code=404, detail=f"Token '{name}' not found")
+    _save_tokens_to_file()
+    return {"status": "revoked", "name": name}
+
+
+@app.get("/admin/tokens")
+async def list_tokens(_=Depends(require_admin)):
+    return {"tokens": [{"name": t["name"], "created_at": t["created_at"]} for t in TOKENS]}
+
+
+# ---------------------------------------------------------------------------
+# Note endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/notes", response_model=list[NoteOut])
+async def list_notes(
+    q: Optional[str] = Query(None, max_length=200),
+    tag: Optional[str] = Query(None, max_length=100),
+    # Bounded: every entry carries the note's full content, so an unbounded
+    # limit hands out the whole collection in one call. Negative values used
+    # to slice backwards and return a quietly wrong page instead of a 422.
+    limit: int = Query(50, ge=1, le=MAX_PAGE_SIZE),
+    offset: int = Query(0, ge=0),
+    _=Depends(require_token),
+):
+    results = list(notes_index.values())
+
+    if tag:
+        results = [n for n in results if tag.lower() in [t.lower() for t in n["tags"]]]
+
+    if q:
+        q_lower = q.lower()
+        results = [
+            n for n in results
+            if q_lower in n["content"].lower()
+            or q_lower in n["filename"].lower()
+            or any(q_lower in t.lower() for t in n["tags"])
+        ]
+
+    pinned_notes = sorted([n for n in results if n["pinned"]], key=lambda n: n["updated_at"], reverse=True)
+    unpinned_notes = sorted([n for n in results if not n["pinned"]], key=lambda n: n["updated_at"], reverse=True)
+    results = pinned_notes + unpinned_notes
+    paged = results[offset : offset + limit]
+
+    if q:
+        q_lower = q.lower()
+        out = []
+        for n in paged:
+            snippet = None
+            for line in n["content"].splitlines():
+                if q_lower in line.lower():
+                    idx = line.lower().index(q_lower)
+                    start = max(0, idx - 30)
+                    chunk = line[start:start + 90].strip()
+                    if start > 0:
+                        chunk = "…" + chunk
+                    if start + 90 < len(line):
+                        chunk = chunk + "…"
+                    snippet = chunk
+                    break
+            out.append({**n, "snippet": snippet})
+        return out
+
+    return paged
+
+
+@app.post("/api/notes", response_model=NoteOut)
+async def create_note(body: NoteCreate, _=Depends(require_token)):
+    content = body.content or ""
+
+    if body.filename:
+        filename = sanitize_filename(body.filename)
+        if (NOTES_PATH / filename).exists():
+            raise HTTPException(status_code=409, detail="Conflict")
+    else:
+        today = date.today().isoformat()
+        filename = _unique_filename(f"{today}.md")
+
+    path = NOTES_PATH / filename
+    stem = path.stem
+
+    date_str = created_at_from_filename(path.name)
+    created = date_str if date_str else date.today().isoformat()
+
+    expires_at = None
+    if body.ttl_hours:
+        expires_at = (datetime.now(UTC) + timedelta(hours=body.ttl_hours)).isoformat(timespec="seconds")
+
+    _write_note_with_frontmatter(path, content, created, expires_at=expires_at)
+    notes_index[stem] = parse_note(path)
+    return notes_index[stem]
+
+
+@app.get("/api/notes/{note_id}", response_model=NoteOut)
+async def get_note(note_id: str, _=Depends(require_token)):
+    if note_id not in notes_index:
+        raise HTTPException(status_code=404, detail="Note not found")
+    return notes_index[note_id]
+
+
+@app.patch("/api/notes/{note_id}", response_model=Optional[NoteOut])
+async def update_note(note_id: str, body: NoteUpdate, _=Depends(require_token)):
+    if note_id not in notes_index:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    path = NOTES_PATH / f"{note_id}.md"
+
+    # Read existing frontmatter for created date and pinned state
+    meta, old_body = parse_frontmatter(path.read_text(encoding="utf-8"))
+
+    # Optimistic concurrency: refuse to clobber a write we never saw.
+    # Checked before the empty-content branch so a stale client cannot
+    # trash a note that changed underneath it either.
+    if body.base_version is not None:
+        current_version = content_version(old_body)
+        if body.base_version != current_version:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "conflict",
+                    "message": "The note was changed by someone else",
+                    "version": current_version,
+                    "content": old_body,
+                },
+            )
+
+    # Empty content → move to trash
+    if not body.content or not body.content.strip():
+        _move_to_trash(note_id)
+        invalidate_delete(note_id)
+        # 204 means no body at all; JSONResponse sent a literal "null"
+        return Response(status_code=204)
+
+    if old_body != body.content:
+        _snapshot_note(note_id)
+    created = meta.get("created")
+    if created is not None:
+        created = str(created)
+    else:
+        date_str = created_at_from_filename(f"{note_id}.md")
+        created = date_str if date_str else None
+    pinned = bool(meta.get("pinned", False))
+    expires_at = normalize_expiry(meta.get("expires_at"))
+
+    _write_note_with_frontmatter(path, body.content, created, pinned, expires_at)
+    invalidate(note_id)
+    return notes_index[note_id]
+
+
+@app.post("/api/notes/{note_id}/rename", response_model=NoteOut)
+async def rename_note(note_id: str, body: NoteRename, _=Depends(require_token)):
+    if note_id not in notes_index:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    new_filename = sanitize_filename(body.new_filename)
+
+    new_path = NOTES_PATH / new_filename
+    if new_path.exists():
+        raise HTTPException(status_code=409, detail="A note with that name already exists")
+
+    old_path = NOTES_PATH / f"{note_id}.md"
+    old_path.rename(new_path)
+
+    new_id = new_path.stem
+    old_hist = _history_dir(note_id)
+    if old_hist.is_dir() and not _history_dir(new_id).exists():
+        old_hist.rename(_history_dir(new_id))
+    invalidate_rename(note_id, new_id)
+    return notes_index[new_id]
+
+
+@app.post("/api/notes/{note_id}/pin", response_model=NoteOut)
+async def pin_note(note_id: str, _=Depends(require_token)):
+    if note_id not in notes_index:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    path = NOTES_PATH / f"{note_id}.md"
+    meta, content = parse_frontmatter(path.read_text(encoding="utf-8"))
+
+    created = meta.get("created")
+    if created is not None:
+        created = str(created)
+    else:
+        date_str = created_at_from_filename(f"{note_id}.md")
+        created = date_str if date_str else None
+
+    new_pinned = not bool(meta.get("pinned", False))
+    expires_at = normalize_expiry(meta.get("expires_at"))
+    _write_note_with_frontmatter(path, content, created, new_pinned, expires_at)
+    invalidate(note_id)
+    return notes_index[note_id]
+
+
+@app.delete("/api/notes/{note_id}")
+async def delete_note(note_id: str, _=Depends(require_token)):
+    if note_id not in notes_index:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    _move_to_trash(note_id)
+    invalidate_delete(note_id)
+    return {"status": "deleted", "id": note_id}
+
+
+@app.get("/api/notes/{note_id}/history", response_model=list[HistoryEntryOut])
+async def list_note_history(note_id: str, _=Depends(require_token)):
+    if note_id not in notes_index:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    hist = _history_dir(note_id)
+    entries = []
+    if hist.is_dir():
+        for f in sorted(hist.glob("*.md"), reverse=True):
+            version = f.stem
+            if not VERSION_RE.match(version):
+                continue
+            _meta, content = parse_frontmatter(f.read_text(encoding="utf-8"))
+            entries.append({
+                "version": version,
+                "timestamp": _version_timestamp(version),
+                "preview": _first_line(content),
+            })
+    return entries
+
+
+@app.get("/api/notes/{note_id}/history/{version}", response_model=HistoryVersionOut)
+async def get_note_history_version(note_id: str, version: str, _=Depends(require_token)):
+    if note_id not in notes_index:
+        raise HTTPException(status_code=404, detail="Note not found")
+    if not VERSION_RE.match(version):
+        raise HTTPException(status_code=404, detail="Version not found")
+
+    f = _history_dir(note_id) / f"{version}.md"
+    if not f.exists():
+        raise HTTPException(status_code=404, detail="Version not found")
+
+    _meta, content = parse_frontmatter(f.read_text(encoding="utf-8"))
+    return {
+        "version": version,
+        "timestamp": _version_timestamp(version),
+        "content": content,
+    }
+
+
+@app.get("/api/notes/{note_id}/raw")
+async def get_note_raw(note_id: str, _=Depends(require_token)):
+    if note_id not in notes_index:
+        raise HTTPException(status_code=404, detail="Note not found")
+    path = NOTES_PATH / f"{note_id}.md"
+    return PlainTextResponse(path.read_text(encoding="utf-8"))
+
+
+# ---------------------------------------------------------------------------
+# Trash endpoints
+# ---------------------------------------------------------------------------
+
+@app.delete("/api/trash")
+async def empty_trash(_=Depends(require_token)):
+    """Empty the trash permanently — every file and all of its history."""
+    purged = 0
+    if TRASH_PATH.is_dir():
+        for f in TRASH_PATH.glob("*.md"):
+            if f.name.startswith("."):
+                continue
+            f.unlink()
+            purged += 1
+        hist_root = TRASH_PATH / ".history"
+        if hist_root.is_dir():
+            shutil.rmtree(hist_root)
+    return {"status": "purged", "count": purged}
+
+
+@app.get("/api/trash", response_model=list[TrashEntryOut])
+async def list_trash(_=Depends(require_token)):
+    entries = []
+    if TRASH_PATH.is_dir():
+        for f in TRASH_PATH.glob("*.md"):
+            if f.name.startswith("."):
+                continue
+            original, deleted_at = _trash_meta(f)
+            _meta, content = parse_frontmatter(f.read_text(encoding="utf-8"))
+            entries.append({
+                "name": f.name,
+                "original_filename": original,
+                "deleted_at": deleted_at,
+                "preview": _first_line(content),
+            })
+    entries.sort(key=lambda e: (e["deleted_at"], e["name"]), reverse=True)
+    return entries
+
+
+@app.get("/api/trash/{name}", response_model=TrashContentOut)
+async def get_trash_entry(name: str, _=Depends(require_token)):
+    p = _trash_entry_path(name)
+    original, deleted_at = _trash_meta(p)
+    _meta, content = parse_frontmatter(p.read_text(encoding="utf-8"))
+    return {
+        "name": p.name,
+        "original_filename": original,
+        "deleted_at": deleted_at,
+        "content": content,
+    }
+
+
+@app.post("/api/trash/{name}/restore", response_model=NoteOut)
+async def restore_trash_entry(name: str, _=Depends(require_token)):
+    p = _trash_entry_path(name)
+    original, _deleted_at = _trash_meta(p)
+
+    # Never overwrite a live note — restore under a unique name if taken
+    dest_filename = _unique_filename(sanitize_filename(original))
+    dest = NOTES_PATH / dest_filename
+    p.rename(dest)
+    new_id = dest.stem
+
+    trash_hist = TRASH_PATH / ".history" / p.stem
+    if trash_hist.is_dir() and not _history_dir(new_id).exists():
+        _history_dir(new_id).parent.mkdir(parents=True, exist_ok=True)
+        trash_hist.rename(_history_dir(new_id))
+
+    notes_index[new_id] = parse_note(dest)
+    return notes_index[new_id]
+
+
+@app.delete("/api/trash/{name}")
+async def purge_trash_entry(name: str, _=Depends(require_token)):
+    """Delete permanently — removes both the file and its history."""
+    p = _trash_entry_path(name)
+    hist = TRASH_PATH / ".history" / p.stem
+    p.unlink()
+    if hist.is_dir():
+        shutil.rmtree(hist)
+    return {"status": "purged", "name": name}
+
+
+# ---------------------------------------------------------------------------
+# Static files – must be last
+# ---------------------------------------------------------------------------
+
+STATIC_DIR = os.environ.get("HEXNOTES_STATIC", "/app/static")
+app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")

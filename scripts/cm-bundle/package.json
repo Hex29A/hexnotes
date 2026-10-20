@@ -1,0 +1,12 @@
+{
+  "private": true,
+  "dependencies": {
+    "@codemirror/commands": "6.8.1",
+    "@codemirror/language": "6.11.0",
+    "@codemirror/state": "6.5.2",
+    "@codemirror/view": "6.36.8",
+    "@lezer/highlight": "1.2.1",
+    "@lezer/markdown": "1.4.3",
+    "esbuild": "0.25.4"
+  }
+}

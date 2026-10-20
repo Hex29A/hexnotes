@@ -1,0 +1,4353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>HexNotes</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#1E9E63">
+<script>
+// Apply a pinned theme before first paint to avoid a flash of the wrong mode
+try {
+  const t = localStorage.getItem('hexnotes_theme');
+  if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
+} catch (e) {}
+</script>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<script src="/vendor/marked-15.0.12.min.js"></script>
+<script src="/vendor/purify-3.4.15.min.js"></script>
+<script src="/vendor/codemirror-6.36.8.min.js"></script>
+<style>
+/* === SECTION: CSS RESET & VARIABLES === */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url('/vendor/JetBrainsMono-2.304-Regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  src: url('/vendor/JetBrainsMono-2.304-Bold.woff2') format('woff2');
+}
+
+:root {
+  --bg-primary: #0d0d0d;
+  --bg-sidebar: #141414;
+  --bg-card: #1a1a1a;
+  --bg-card-active: #222222;
+  --text-primary: #e8e8e8;
+  --text-muted: #666666;
+  --accent: #39C17E;
+  --accent-dim: #123A28;
+  --border: #2a2a2a;
+  --error-bg: #3b0a0a;
+  --error-text: #f87171;
+  --offline-bg: #422006;
+  --offline-text: #fef08a;
+  --font: 'JetBrains Mono', Consolas, 'Courier New', monospace;
+}
+
+/* Auto mode (no data-theme attribute) follows the system preference;
+   data-theme="dark"/"light" pins the theme regardless of the system. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg-primary: #f5f5f5;
+    --bg-sidebar: #ebebeb;
+    --bg-card: #e0e0e0;
+    --bg-card-active: #d4d4d4;
+    --text-primary: #1a1a1a;
+    --text-muted: #575757;
+    --accent: #1E9E63;
+    --accent-dim: #CFEEDC;
+    --border: #cccccc;
+    --error-bg: #fee2e2;
+    --error-text: #b91c1c;
+    --offline-bg: #fef9c3;
+    --offline-text: #854d0e;
+  }
+}
+:root[data-theme="light"] {
+  --bg-primary: #f5f5f5;
+  --bg-sidebar: #ebebeb;
+  --bg-card: #e0e0e0;
+  --bg-card-active: #d4d4d4;
+  --text-primary: #1a1a1a;
+  --text-muted: #575757;
+  --accent: #1E9E63;
+  --accent-dim: #CFEEDC;
+  --border: #cccccc;
+  --error-bg: #fee2e2;
+  --error-text: #b91c1c;
+  --offline-bg: #fef9c3;
+  --offline-text: #854d0e;
+}
+
+html, body {
+  height: 100%;
+  font-family: var(--font);
+  font-size: 14px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  overflow: hidden;
+}
+
+button { font-family: var(--font); cursor: pointer; border: none; background: none; color: var(--text-primary); }
+input { font-family: var(--font); color: var(--text-primary); background: var(--bg-primary); border: 1px solid var(--border); }
+
+/* === SECTION: AUTH SCREEN === */
+#auth-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 16px;
+}
+#auth-screen h1 { font-size: 24px; color: var(--accent); }
+#auth-screen input {
+  width: 300px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+#auth-screen button {
+  background: var(--accent);
+  color: white;
+  padding: 10px 32px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
+}
+#auth-screen button:hover { opacity: 0.9; }
+#auth-error { color: var(--error-text); font-size: 12px; display: none; }
+
+/* === SECTION: APP LAYOUT === */
+#app { display: none; height: 100%; flex-direction: column; }
+#app.active { display: flex; }
+
+/* Topbar */
+#topbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-sidebar);
+  min-height: 48px;
+  flex-shrink: 0;
+}
+#btn-menu { font-size: 20px; padding: 4px 8px; }
+#btn-back { font-size: 20px; padding: 4px 8px; display: none; }
+#topbar-title { font-weight: 700; font-size: 15px; color: var(--accent); margin-right: auto; cursor: pointer; }
+#search-input {
+  flex: 1;
+  max-width: 400px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+#search-input::placeholder { color: var(--text-muted); }
+#btn-new {
+  background: var(--accent);
+  color: white;
+  padding: 6px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+#btn-new:hover { opacity: 0.9; }
+#btn-ephemeral {
+  background: none; border: 1px solid var(--border); border-radius: 8px;
+  padding: 4px 10px; font-size: 14px; cursor: pointer; color: var(--text-muted);
+}
+#btn-ephemeral:hover { color: var(--accent); }
+#btn-ephemeral.armed { color: var(--accent); border-color: var(--accent); }
+#btn-today {
+  background: none;
+  font-size: 16px;
+  padding: 4px 8px;
+  color: var(--text-muted);
+}
+#btn-today:hover { color: var(--accent); }
+#btn-sync {
+  display: none;
+  background: none;
+  font-size: 16px;
+  padding: 4px 8px;
+  color: var(--text-muted);
+}
+#btn-sync:hover { color: var(--accent); }
+@keyframes spin { to { transform: rotate(360deg); } }
+#btn-sync.syncing { animation: spin 0.6s linear; color: var(--accent); }
+
+/* Main area */
+#main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Sidebar — trash-bar is a docked footer, sidebar-scroll is the only
+   scrolling region, so the theme toggle never needs a scroll to reach. */
+#sidebar {
+  width: 300px;
+  min-width: 300px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-sidebar);
+  flex-shrink: 0;
+  transition: margin-left 0.2s;
+  display: flex;
+  flex-direction: column;
+}
+#sidebar.collapsed {
+  margin-left: -300px;
+}
+#sidebar-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+#notes-list {
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  gap: 2px;
+}
+
+/* Shown instead of an empty list when the note list could not be fetched (#13) */
+#list-error {
+  display: none;
+  margin: 8px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--error-bg);
+  color: var(--error-text);
+  font-size: 12px;
+  line-height: 1.4;
+}
+#list-error button {
+  margin-top: 6px;
+  background: none;
+  border: 1px solid var(--error-text);
+  color: var(--error-text);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* Note card */
+.note-card {
+  padding: 10px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  position: relative;
+}
+.note-card:hover { background: var(--bg-card); }
+.note-card.active {
+  background: var(--bg-card-active);
+  border-left-color: var(--accent);
+}
+.note-card.pinned {
+  border-left-color: var(--accent);
+}
+.note-card.ephemeral {
+  border-left-color: #f0b429;
+  background: rgba(240, 180, 41, 0.07);
+}
+.note-card.ephemeral:hover { background: rgba(240, 180, 41, 0.12); }
+.note-card.ephemeral.active {
+  background: var(--bg-card-active);
+  border-left-color: var(--accent);
+}
+.eph-ttl {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #b07d0a;
+  background: rgba(240, 180, 41, 0.15);
+  padding: 1px 6px;
+  border-radius: 9999px;
+  white-space: nowrap;
+}
+:root.dark .eph-ttl { color: #f0c75e; }
+
+.pin-btn {
+  position: absolute;
+  top: 8px;
+  right: 6px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  color: var(--text-muted);
+  line-height: 1;
+  z-index: 1;
+}
+.note-card:hover .pin-btn,
+.note-card.pinned .pin-btn {
+  opacity: 1;
+}
+.note-card.pinned .pin-btn {
+  color: var(--accent);
+}
+.note-card-preview {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+  padding-right: 24px;
+  color: var(--text-muted);
+}
+.note-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.tag-chip {
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 9999px;
+}
+.note-card-date {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+/* Tag filter chips strip */
+#tag-filters {
+  padding: 8px 8px 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-sidebar);
+}
+#tag-filters:empty { display: none; }
+.tag-filter-chip {
+  background: var(--bg-card);
+  color: var(--text-muted);
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+  font-family: var(--font);
+}
+.tag-filter-chip:hover { color: var(--text-primary); }
+.tag-filter-chip.active {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* Collapse-all bar */
+#collapse-all-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 6px 10px 2px;
+  flex-shrink: 0;
+}
+#btn-collapse-all {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: var(--font);
+  letter-spacing: 0.03em;
+}
+#btn-collapse-all:hover { color: var(--text-primary); }
+
+/* Group headers */
+.group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px 4px;
+  font-size: 11px;
+  color: var(--text-primary);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  user-select: none;
+}
+.group-header:hover { color: var(--accent); }
+.group-toggle {
+  font-size: 9px;
+  display: inline-block;
+  transition: transform 0.15s;
+}
+.group-header.collapsed .group-toggle { transform: rotate(-90deg); }
+.group-count {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--bg-card);
+  padding: 1px 6px;
+  border-radius: 9999px;
+}
+.group-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 0 4px;
+}
+.group-body.collapsed { display: none; }
+.date-bucket {
+  padding: 8px 12px 2px;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+/* Editor area */
+#editor-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* Filename row */
+#filename-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-sidebar);
+  min-height: 40px;
+  flex-shrink: 0;
+}
+#filename-icon { font-size: 14px; }
+#filename-display {
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#filename-display:hover { color: var(--accent); }
+#ephemeral-badge {
+  display: none;
+  align-items: center;
+  margin-left: 4px;
+  padding: 2px 7px;
+  border-radius: 9999px;
+  color: #b07d0a;
+  background: rgba(240, 180, 41, 0.15);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+:root.dark #ephemeral-badge { color: #f0c75e; }
+#filename-edit-btn {
+  padding: 8px 12px;
+  font-size: 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+#filename-edit-btn:hover { color: var(--accent); }
+#filename-pin-btn {
+  padding: 8px 10px;
+  font-size: 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+#filename-pin-btn:hover { color: var(--accent); }
+#filename-delete-btn {
+  padding: 8px 10px;
+  font-size: 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+#filename-delete-btn:hover { color: #f87171; }
+#filename-input {
+  flex: 1;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  display: none;
+}
+#filename-error {
+  font-size: 11px;
+  color: var(--error-text);
+  padding: 2px 16px;
+  display: none;
+}
+
+/* Error bar */
+#error-bar {
+  display: none;
+  padding: 8px 16px;
+  background: var(--error-bg);
+  color: var(--error-text);
+  font-size: 12px;
+  flex-shrink: 0;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+#error-bar-msg { flex: 1; }
+#error-bar-retry {
+  background: none;
+  border: 1px solid var(--error-text);
+  color: var(--error-text);
+  font-size: 11px;
+  padding: 2px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: var(--font);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+#error-bar-dismiss {
+  font-size: 14px;
+  background: none;
+  border: none;
+  color: var(--error-text);
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+/* Conflict bar — the note changed elsewhere (AI, another device) while open.
+   Uses the offline palette, not the error palette: this is a state that needs
+   a decision, not a failure. */
+#conflict-bar {
+  display: none;
+  padding: 8px 16px;
+  background: var(--offline-bg);
+  color: var(--offline-text);
+  font-size: 12px;
+  flex-shrink: 0;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+#conflict-bar-msg { flex: 1; }
+#conflict-bar button {
+  background: none;
+  border: 1px solid var(--offline-text);
+  color: var(--offline-text);
+  font-size: 11px;
+  padding: 2px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: var(--font);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Editor */
+#editor-wrap {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  overflow: hidden;
+}
+#editor {
+  flex: 1;
+  resize: none;
+  border: none;
+  outline: none;
+  padding: 16px;
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.6;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  tab-size: 2;
+}
+/* Live editor (CodeMirror) — matches the textarea and the preview */
+#editor-wrap .cm-editor { flex: 1; min-height: 0; background: var(--bg-primary); color: var(--text-primary); }
+#editor-wrap .cm-editor.cm-focused { outline: none; }
+#editor-wrap .cm-scroller { font-family: var(--font); font-size: 14px; line-height: 1.6; overflow-y: auto; }
+#editor-wrap .cm-content { padding: 16px; caret-color: var(--text-primary); }
+#editor-wrap .cm-line { padding: 0; }
+.cm-lp-mono { background: var(--bg-card); border-radius: 3px; }
+.cm-lp-codeblock { background: var(--bg-card); }
+.cm-lp-quote { border-left: 3px solid var(--accent); padding-left: 12px !important; color: var(--text-muted); }
+.cm-lp-link { color: var(--accent); text-decoration: underline; cursor: pointer; }
+.cm-lp-wiki { color: var(--accent); border-bottom: 1px solid var(--accent); cursor: pointer; }
+.cm-lp-wiki-missing { color: var(--error-text); border-bottom: 1px dashed var(--error-text); }
+.cm-lp-bullet { color: var(--text-muted); }
+.cm-lp-hr { display: inline-block; width: 100%; vertical-align: middle; border-top: 1px solid var(--border); }
+.cm-lp-task { cursor: pointer; width: 15px; height: 15px; accent-color: var(--accent); margin: 0 2px 0 0; vertical-align: middle; }
+@media (pointer: coarse) { .cm-lp-task { width: 20px; height: 20px; margin-right: 4px; } }
+#save-indicator {
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  z-index: 2;
+  font-size: 14px;
+  color: var(--accent);
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+}
+
+/* Empty state */
+#empty-state {
+  display: none;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+/* Offline bar */
+#offline-bar {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 32px;
+  background: var(--offline-bg);
+  color: var(--offline-text);
+  font-size: 12px;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+
+/* FAB (mobile) */
+#fab {
+  display: none;
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: white;
+  font-size: 28px;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+#fab:hover { opacity: 0.9; }
+#fab.holding {
+  background: #f0b429;
+  transform: scale(1.12);
+  transition: transform 0.2s, background 0.2s;
+}
+#fab-hint {
+  display: none;
+  position: fixed;
+  bottom: 92px;
+  right: 24px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  z-index: 101;
+  pointer-events: none;
+}
+#fab-hint.visible { display: block; }
+
+
+/* Confirm dialog */
+#confirm-overlay {
+  display: none;
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 300;
+  align-items: center;
+  justify-content: center;
+}
+#confirm-overlay.active { display: flex; }
+#confirm-dialog {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 24px;
+  max-width: 360px;
+  width: 90%;
+  text-align: center;
+}
+#confirm-dialog p { margin-bottom: 16px; font-size: 14px; }
+#confirm-dialog .btn-row { display: flex; gap: 12px; justify-content: center; }
+#confirm-dialog button {
+  padding: 8px 24px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 700;
+}
+#btn-confirm-yes { background: var(--error-text); color: white; }
+#btn-confirm-no { background: var(--border); }
+
+/* Preview */
+#preview {
+  display: none;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.7;
+  font-size: 14px;
+}
+#preview h1, #preview h2, #preview h3, #preview h4, #preview h5, #preview h6 {
+  margin: 16px 0 8px;
+  line-height: 1.3;
+  color: var(--text-primary);
+}
+#preview h1 { font-size: 1.6em; }
+#preview h2 { font-size: 1.3em; }
+#preview h3 { font-size: 1.1em; }
+#preview p { margin: 0 0 10px; }
+#preview ul, #preview ol { margin: 8px 0 10px 24px; }
+#preview li { margin: 4px 0; }
+#preview a { color: var(--accent); text-decoration: underline; }
+#preview blockquote {
+  border-left: 3px solid var(--accent);
+  margin: 8px 0;
+  padding: 4px 12px;
+  color: var(--text-muted);
+}
+#preview code {
+  background: var(--bg-card);
+  border-radius: 3px;
+  padding: 2px 5px;
+  font-family: var(--font);
+  font-size: 0.9em;
+}
+#preview pre {
+  background: var(--bg-card);
+  border-radius: 6px;
+  padding: 12px;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+#preview pre code {
+  background: none;
+  padding: 0;
+}
+#preview hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+#preview table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+#preview th, #preview td { border: 1px solid var(--border); padding: 6px 12px; text-align: left; }
+#preview th { background: var(--bg-card); }
+#preview img { max-width: 100%; border-radius: 4px; }
+#preview a.wiki-link {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid var(--accent);
+}
+#preview a.wiki-link-missing {
+  color: var(--error-text);
+  border-bottom: 1px dashed var(--error-text);
+}
+#preview input[type="checkbox"] {
+  cursor: pointer;
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+  margin-right: 6px;
+  vertical-align: middle;
+}
+#preview li:has(> input[type="checkbox"]) { list-style: none; margin-left: -20px; }
+
+/* [[ autocomplete dropdown */
+#wikilink-suggest {
+  display: none;
+  position: absolute;
+  z-index: 60;
+  min-width: 220px;
+  max-width: 360px;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+}
+.wikilink-suggest-item {
+  padding: 7px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wikilink-suggest-item:hover, .wikilink-suggest-item.selected { background: var(--bg-card-active); }
+.wikilink-suggest-item mark { background: none; color: var(--accent); font-weight: 700; }
+
+/* Backlinks footer — deliberately discreet */
+#backlinks {
+  margin-top: 28px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+#backlinks a.wiki-link { font-size: 12px; border-bottom-style: dotted; }
+#filename-preview-btn {
+  padding: 8px 10px;
+  font-size: 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+#filename-preview-btn:hover { color: var(--accent); }
+#filename-back-btn {
+  padding: 8px 10px;
+  font-size: 16px;
+  cursor: pointer;
+  flex-shrink: 0;
+  visibility: hidden; /* shown once there is somewhere to go back to */
+  color: var(--text-muted);
+}
+#filename-back-btn:hover { color: var(--accent); }
+
+/* Active state for toggle buttons — inline SVG inherits currentColor */
+#filename-row button.active {
+  color: var(--accent);
+  background: var(--accent-dim);
+  border-radius: 6px;
+}
+
+/* Lucide inline SVG icons */
+svg.lucide {
+  width: 1.1em;
+  height: 1.1em;
+  vertical-align: -0.15em;
+  display: inline-block;
+  flex-shrink: 0;
+}
+#btn-trash, #btn-collapse-all, #btn-new {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+#fab svg.lucide { width: 26px; height: 26px; }
+#filename-row button svg.lucide { width: 16px; height: 16px; display: block; }
+#filename-icon svg.lucide { width: 16px; height: 16px; display: block; color: var(--text-muted); }
+.group-toggle svg.lucide { width: 11px; height: 11px; display: block; }
+.group-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.group-label svg.lucide { width: 13px; height: 13px; }
+
+/* Search wrap + clear button */
+#search-wrap {
+  position: relative;
+  flex: 1;
+  max-width: 400px;
+  display: flex;
+  align-items: center;
+}
+#search-wrap #search-input {
+  flex: 1;
+  max-width: none;
+  padding-right: 28px;
+}
+#btn-search-clear {
+  position: absolute;
+  right: 6px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px;
+  display: none;
+  line-height: 1;
+}
+#btn-search-clear:hover { color: var(--text-primary); }
+
+/* Find bar */
+#find-bar {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--bg-sidebar);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+#find-input {
+  flex: 1;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+#find-counter {
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 48px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.find-nav-btn {
+  font-size: 13px;
+  padding: 3px 8px;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.find-nav-btn:hover { color: var(--text-primary); }
+#find-close { font-size: 13px; color: var(--text-muted); padding: 3px 6px; }
+#find-close:hover { color: var(--text-primary); }
+
+/* Command palette */
+#palette-overlay {
+  display: none;
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 400;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 80px;
+}
+#palette-overlay.active { display: flex; }
+#palette-dialog {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  width: 480px;
+  max-width: 90vw;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+#palette-input {
+  width: 100%;
+  padding: 14px 16px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+  font-size: 14px;
+  border-radius: 0;
+  outline: none;
+  box-sizing: border-box;
+}
+#palette-list { max-height: 320px; overflow-y: auto; }
+.palette-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  cursor: pointer;
+  gap: 12px;
+}
+.palette-item:hover, .palette-item.selected { background: var(--bg-card-active); }
+.palette-item-name {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+.palette-item-date { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
+
+/* Version history */
+#filename-history-btn {
+  padding: 8px 10px;
+  font-size: 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+#filename-history-btn:hover { color: var(--accent); }
+#history-overlay, #trash-overlay {
+  display: none;
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 350;
+  align-items: center;
+  justify-content: center;
+}
+#history-overlay.active, #trash-overlay.active { display: flex; }
+#history-dialog, #trash-dialog {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  width: 560px;
+  max-width: 92vw;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+#history-header, #trash-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+#history-title, #trash-title { font-size: 13px; font-weight: 700; color: var(--accent); flex: 1; }
+#history-back, #trash-back { font-size: 14px; padding: 2px 6px; color: var(--text-muted); display: none; }
+#history-back:hover, #trash-back:hover { color: var(--text-primary); }
+#history-close, #trash-close { font-size: 14px; padding: 2px 6px; color: var(--text-muted); }
+#history-close:hover, #trash-close:hover { color: var(--text-primary); }
+#history-list, #trash-list { overflow-y: auto; }
+.history-item {
+  padding: 10px 16px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+}
+.history-item:hover { background: var(--bg-card-active); }
+.history-item-date { font-size: 12px; color: var(--text-primary); }
+.history-item-preview {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+.history-empty { padding: 16px; font-size: 12px; color: var(--text-muted); }
+#history-view, #trash-view { display: none; flex-direction: column; min-height: 0; }
+#history-content, #trash-content {
+  flex: 1;
+  overflow-y: auto;
+  margin: 0;
+  padding: 12px 16px;
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--bg-primary);
+}
+#history-actions, #trash-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+#history-restore, #trash-restore {
+  background: var(--accent);
+  color: white;
+  padding: 6px 20px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 700;
+}
+#history-restore:hover, #trash-restore:hover { opacity: 0.9; }
+
+
+/* Trash specifics */
+#trash-bar {
+  padding: 8px 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+}
+#btn-theme {
+  color: var(--text-muted);
+  padding: 4px 6px;
+}
+#btn-theme:hover { color: var(--accent); }
+#app-version { font-size: 10px; color: var(--text-muted); font-weight: 400; }
+#btn-trash {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-family: var(--font);
+  letter-spacing: 0.03em;
+}
+#btn-trash:hover { color: var(--text-primary); }
+#trash-actions { gap: 10px; }
+#trash-purge {
+  background: none;
+  border: 1px solid var(--error-text);
+  color: var(--error-text);
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  margin-right: auto;
+}
+#trash-purge:hover { background: var(--error-bg); }
+#trash-purge.armed { background: var(--error-text); color: white; font-weight: 700; }
+#trash-list-actions {
+  display: none;
+  justify-content: flex-end;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+#trash-empty {
+  background: none;
+  border: 1px solid var(--error-text);
+  color: var(--error-text);
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+#trash-empty:hover { background: var(--error-bg); }
+#trash-empty.armed { background: var(--error-text); color: white; font-weight: 700; }
+.trash-item-original { font-size: 12px; color: var(--text-primary); }
+
+/* Match highlight */
+mark {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-radius: 2px;
+  font-style: normal;
+}
+.note-card-snippet {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 3px;
+  font-style: italic;
+}
+
+/* === SECTION: MOBILE === */
+@media (max-width: 768px) {
+  #sidebar {
+    position: fixed;
+    top: 48px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    min-width: 100%;
+    z-index: 50;
+    margin-left: 0;
+    display: none;
+  }
+  #sidebar.mobile-visible {
+    display: flex;
+  }
+  #btn-menu { display: none; }
+  #btn-back { display: block; }
+  #search-input { max-width: none; }
+  #fab { display: flex; }
+  #btn-new { display: none; }
+  #btn-ephemeral { display: none; }
+  #btn-today { display: none; }
+  #btn-sync { display: block; }
+  #editor { padding: 12px; }
+  /* Clear the FAB (56px circle, bottom:24px right:24px) so it doesn't sit
+     on top of the theme toggle. */
+  #trash-bar { padding-right: 84px; }
+  /* iOS Safari auto-zooms the page on focus for any input/textarea with a
+     computed font-size under 16px — that zoomed state is what let the note
+     be dragged sideways while editing (and viewing, since the zoom lingers
+     after switching to preview). 16px here disables that zoom. */
+  #editor, #editor-wrap .cm-scroller, #search-input, #filename-input, #find-input, #palette-input, #auth-token {
+    font-size: 16px;
+  }
+}
+</style>
+</head>
+<body>
+
+<!-- === SECTION: AUTH SCREEN HTML === -->
+<div id="auth-screen">
+  <h1>HexNotes</h1>
+  <p style="color: var(--text-muted)">Enter your API token</p>
+  <input type="text" id="auth-token" placeholder="tok_..." autocomplete="off" spellcheck="false">
+  <button id="auth-submit">Connect</button>
+  <p id="auth-error">Invalid token</p>
+</div>
+
+<!-- === SECTION: APP HTML === -->
+<div id="app">
+  <!-- Topbar -->
+  <div id="topbar">
+    <button id="btn-back" title="Back">←</button>
+    <button id="btn-menu" title="Toggle sidebar (Ctrl+Shift+B)">☰</button>
+    <span id="topbar-title">HexNotes <span id="app-version"></span></span>
+    <div id="search-wrap">
+      <input type="text" id="search-input" placeholder="Search..." spellcheck="false">
+      <button id="btn-search-clear" title="Clear search">✕</button>
+    </div>
+    <button id="btn-sync" title="Sync notes">↻</button>
+    <button id="btn-today" title="Today's note (Ctrl+D)">📅</button>
+    <button id="btn-ephemeral" title="New ephemeral note — auto-deleted after 48h">⏳</button>
+    <button id="btn-new" title="New note (Ctrl+N)">+ New</button>
+  </div>
+
+  <!-- Main -->
+  <div id="main">
+    <!-- Sidebar -->
+    <div id="sidebar">
+      <div id="sidebar-scroll">
+        <div id="tag-filters"></div>
+        <div id="collapse-all-bar"><button id="btn-collapse-all">▾ collapse all</button></div>
+        <div id="list-error" role="alert"><div id="list-error-text"></div><button id="btn-list-retry">Try again</button></div>
+        <div id="notes-list"></div>
+      </div>
+      <div id="trash-bar">
+        <button id="btn-trash">🗑 Trash</button>
+        <button id="btn-theme" title="Theme"></button>
+      </div>
+    </div>
+
+    <!-- Editor area -->
+    <div id="editor-area">
+      <div id="filename-row">
+        <button id="filename-back-btn" title="Back (Alt+←)">←</button>
+        <span id="filename-icon">📄</span>
+        <span id="filename-display"></span>
+        <span id="ephemeral-badge" aria-live="polite"></span>
+        <input type="text" id="filename-input" spellcheck="false">
+        <button id="filename-edit-btn" title="Rename">✎</button>
+        <button id="filename-pin-btn" title="Pin to top">📌</button>
+        <button id="filename-history-btn" title="Version history">🕘</button>
+        <button id="filename-checklist-btn" title="Insert checklist">☑</button>
+        <button id="filename-preview-btn" title="Preview (Ctrl+M)">👁</button>
+        <button id="filename-delete-btn" title="Delete note">🗑</button>
+      </div>
+      <div id="filename-error"></div>
+      <div id="error-bar">
+        <span id="error-bar-msg"></span>
+        <button id="error-bar-retry">Retry</button>
+        <button id="error-bar-dismiss">✕</button>
+      </div>
+      <div id="conflict-bar">
+        <span id="conflict-bar-msg">This note was changed elsewhere</span>
+        <button id="conflict-bar-reload">Load theirs</button>
+        <button id="conflict-bar-keep">Keep mine</button>
+      </div>
+      <div id="find-bar">
+        <input id="find-input" placeholder="Find in note..." spellcheck="false" autocomplete="off">
+        <span id="find-counter">─</span>
+        <button id="find-prev" class="find-nav-btn" title="Previous (Shift+Enter)">↑</button>
+        <button id="find-next" class="find-nav-btn" title="Next (Enter)">↓</button>
+        <button id="find-close" title="Close (Escape)">✕</button>
+      </div>
+      <div id="editor-wrap">
+        <textarea id="editor" spellcheck="false"></textarea>
+        <div id="preview"></div>
+        <div id="wikilink-suggest"></div>
+        <span id="save-indicator"></span>
+      </div>
+      <div id="empty-state">Select or create a note</div>
+    </div>
+  </div>
+</div>
+
+<!-- Command palette -->
+<div id="palette-overlay">
+  <div id="palette-dialog">
+    <input id="palette-input" placeholder="Open note... (Ctrl+P)" spellcheck="false" autocomplete="off">
+    <div id="palette-list"></div>
+  </div>
+</div>
+
+<!-- FAB -->
+<button id="fab">+</button>
+<div id="fab-hint">⏳ Ephemeral not – 48h</div>
+
+<!-- Offline bar -->
+<div id="offline-bar">● Offline – changes will be saved when you're back online</div>
+
+<!-- Trash dialog -->
+<div id="trash-overlay">
+  <div id="trash-dialog">
+    <div id="trash-header">
+      <button id="trash-back" title="Back to list">←</button>
+      <span id="trash-title">Trash</span>
+      <button id="trash-close" title="Close">✕</button>
+    </div>
+    <div id="trash-list"></div>
+    <div id="trash-list-actions">
+      <button id="trash-empty">Empty trash</button>
+    </div>
+    <div id="trash-view">
+      <pre id="trash-content"></pre>
+      <div id="trash-actions">
+        <button id="trash-purge">Delete forever</button>
+        <button id="trash-restore">Restore</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Version history dialog -->
+<div id="history-overlay">
+  <div id="history-dialog">
+    <div id="history-header">
+      <button id="history-back" title="Back to list">←</button>
+      <span id="history-title">Version history</span>
+      <button id="history-close" title="Close">✕</button>
+    </div>
+    <div id="history-list"></div>
+    <div id="history-view">
+      <pre id="history-content"></pre>
+      <div id="history-actions">
+        <button id="history-restore">Restore</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Delete confirm dialog -->
+<div id="confirm-overlay">
+  <div id="confirm-dialog">
+    <p>Delete this note?</p>
+    <div class="btn-row">
+      <button id="btn-confirm-no">Cancel</button>
+      <button id="btn-confirm-yes">Delete</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// === SECTION: STATE ===
+let apiToken = localStorage.getItem('hexnotes_token');
+let notes = [];
+let activeNoteId = null;
+let isNew = false;
+let newNoteFilename = null;
+let ephemeralArmed = false;  // the next new note will be ephemeral (48h)
+let activeExpiresAt = null;
+let pendingContent = null;
+// Bumped whenever another note (or a fresh new note) takes over the editor,
+// so a create still in flight can tell it is no longer the one on screen.
+let editSession = 0;
+// Version (content hash) the open editor is based on. Sent as base_version on
+// PATCH so the backend can reject a write that would clobber someone else's.
+let activeVersion = null;
+// Bumped on every successful local write. A list response fetched before the
+// most recent write is stale by definition and must not be synced into the
+// editor — it would roll the content (and activeVersion) backwards.
+let localWriteSeq = 0;
+let isSaving = false;
+let saveTimer = null;
+let retryCount = 0;
+let retryTimer = null;
+let isOnline = navigator.onLine;
+let healthInterval = null;
+let sidebarCollapsed = localStorage.getItem('hexnotes_sidebar') === 'collapsed';
+let isMobile = window.innerWidth <= 768;
+let mobileShowList = false;
+let isRenaming = false;
+let isPreviewMode = false;
+let noteHadContent = false;
+let collapsedGroups = JSON.parse(localStorage.getItem('hexnotes_collapsed_groups') || '{}');
+
+// === SECTION: DOM REFS ===
+const $authScreen = document.getElementById('auth-screen');
+const $authToken = document.getElementById('auth-token');
+const $authSubmit = document.getElementById('auth-submit');
+const $authError = document.getElementById('auth-error');
+const $app = document.getElementById('app');
+const $topbar = document.getElementById('topbar');
+const $btnMenu = document.getElementById('btn-menu');
+const $btnBack = document.getElementById('btn-back');
+const $searchInput = document.getElementById('search-input');
+const $btnNew = document.getElementById('btn-new');
+const $btnSync = document.getElementById('btn-sync');
+const $sidebar = document.getElementById('sidebar');
+const $notesList = document.getElementById('notes-list');
+const $listError = document.getElementById('list-error');
+const $listErrorText = document.getElementById('list-error-text');
+const $editorArea = document.getElementById('editor-area');
+const $filenameRow = document.getElementById('filename-row');
+const $filenameDisplay = document.getElementById('filename-display');
+const $ephemeralBadge = document.getElementById('ephemeral-badge');
+const $filenameInput = document.getElementById('filename-input');
+const $filenameEditBtn = document.getElementById('filename-edit-btn');
+const $filenameDeleteBtn = document.getElementById('filename-delete-btn');
+const $filenamePinBtn = document.getElementById('filename-pin-btn');
+const $filenameError = document.getElementById('filename-error');
+const $errorBar = document.getElementById('error-bar');
+const $editor = document.getElementById('editor');
+const $saveIndicator = document.getElementById('save-indicator');
+const $emptyState = document.getElementById('empty-state');
+const $offlineBar = document.getElementById('offline-bar');
+const $fab = document.getElementById('fab');
+const $confirmOverlay = document.getElementById('confirm-overlay');
+const $btnConfirmYes = document.getElementById('btn-confirm-yes');
+const $btnConfirmNo = document.getElementById('btn-confirm-no');
+const $preview = document.getElementById('preview');
+const $btnPreview = document.getElementById('filename-preview-btn');
+
+// === SECTION: LIVE EDITOR ===
+// Obsidian-style live preview: a CodeMirror 6 view that shows the note
+// rendered while the text underneath stays plain markdown. Syntax marks are
+// hidden except where the caret is, so what is typed is always exactly what
+// is saved. The textarea stays the model the rest of the app talks to: while
+// the live view is shown, $editor's value, selection, focus and scroll are
+// routed to it, so autosave, conflicts, remote sync, find and the format
+// shortcuts run unchanged. The textarea itself is the "source" mode.
+// ?editor=classic switches back to textarea + rendered preview (remembered
+// per device, ?editor=live undoes it); if the bundle failed to load the app
+// quietly stays classic.
+const LIVE = (() => {
+  const p = new URLSearchParams(location.search).get('editor');
+  let pref = p;
+  try {
+    if (p === 'classic' || p === 'live') localStorage.setItem('hexnotes_editor', p);
+    else pref = localStorage.getItem('hexnotes_editor');
+  } catch {}
+  return pref !== 'classic' && typeof CM !== 'undefined';
+})();
+let liveView = null;
+let liveShown = false;   // live view visible (the textarea is hidden)
+let liveSyncing = false; // a change pushed from $editor, not typed
+let liveDocKey = null;   // which note the live doc's undo history belongs to
+
+const TA = HTMLTextAreaElement.prototype;
+const taValue = Object.getOwnPropertyDescriptor(TA, 'value');
+const taSelStart = Object.getOwnPropertyDescriptor(TA, 'selectionStart');
+const taSelEnd = Object.getOwnPropertyDescriptor(TA, 'selectionEnd');
+const elScrollTop = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop');
+
+function editorHasFocus() {
+  return document.activeElement === $editor || (liveShown && liveView.hasFocus);
+}
+function isEditorTarget(t) {
+  return t === $editor || (liveShown && liveView.contentDOM.contains(t));
+}
+
+function liveSelect(anchor, head) {
+  const len = liveView.state.doc.length;
+  liveView.dispatch({
+    selection: { anchor: Math.min(anchor, len), head: Math.min(head, len) },
+    scrollIntoView: true,
+  });
+}
+
+// Push a value set on $editor into the live doc. A different note gets a
+// fresh state (its own undo history, like a textarea after .value =); the
+// same note gets only the changed span, so undo and scroll survive the
+// list continuation, Tab, checklist and remote-sync writes.
+function liveSetDoc(v) {
+  const key = (activeNoteId || '') + '|' + isNew;
+  liveSyncing = true;
+  try {
+    if (key !== liveDocKey) {
+      liveDocKey = key;
+      liveView.setState(liveState(v));
+      return;
+    }
+    const old = liveView.state.doc.toString();
+    if (old === v) return;
+    let a = 0;
+    while (a < old.length && a < v.length && old[a] === v[a]) a++;
+    let b = 0;
+    while (b < old.length - a && b < v.length - a && old[old.length - 1 - b] === v[v.length - 1 - b]) b++;
+    liveView.dispatch({ changes: { from: a, to: old.length - b, insert: v.slice(a, v.length - b) } });
+  } finally {
+    liveSyncing = false;
+  }
+}
+
+function liveState(doc) {
+  return CM.EditorState.create({ doc, extensions: liveExtensions() });
+}
+
+let liveExtCache = null;
+function liveExtensions() {
+  if (liveExtCache) return liveExtCache;
+  const { EditorView, ViewPlugin, Decoration, WidgetType, syntaxTree, tags: t } = CM;
+  const mdLang = new CM.Language(CM.defineLanguageFacet(),
+    CM.markdownParser.configure([CM.GFM]), [], 'markdown');
+
+  const highlight = CM.HighlightStyle.define([
+    { tag: t.heading1, fontSize: '1.6em', fontWeight: '700' },
+    { tag: t.heading2, fontSize: '1.3em', fontWeight: '700' },
+    { tag: t.heading3, fontSize: '1.1em', fontWeight: '700' },
+    { tag: [t.heading4, t.heading5, t.heading6], fontWeight: '700' },
+    { tag: t.strong, fontWeight: '700' },
+    { tag: t.emphasis, fontStyle: 'italic' },
+    { tag: t.strikethrough, textDecoration: 'line-through' },
+    { tag: t.monospace, class: 'cm-lp-mono' },
+    { tag: [t.processingInstruction, t.url, t.contentSeparator, t.labelName], color: 'var(--text-muted)' },
+    { tag: t.quote, color: 'var(--text-muted)' },
+  ]);
+
+  class CheckboxWidget extends WidgetType {
+    constructor(checked, pos) { super(); this.checked = checked; this.pos = pos; }
+    eq(o) { return o.checked === this.checked && o.pos === this.pos; }
+    toDOM(view) {
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.className = 'cm-lp-task';
+      box.checked = this.checked;
+      // mousedown is swallowed so the tap neither moves the caret nor pops
+      // the keyboard; the click itself flips the x in the source.
+      const flip = () => view.dispatch({ changes: { from: this.pos + 1, to: this.pos + 2, insert: this.checked ? ' ' : 'x' } });
+      box.addEventListener('mousedown', e => e.preventDefault());
+      box.addEventListener('click', e => { e.preventDefault(); flip(); });
+      // On touch screens the tap focuses the editable text (keyboard up)
+      // before mousedown ever fires. Handling the tap at touchend and
+      // cancelling it stops the focus and the synthetic click; a drag that
+      // started on the box is left alone so the page still scrolls.
+      let touch = null;
+      box.addEventListener('touchstart', e => {
+        const t = e.touches[0];
+        touch = { x: t.clientX, y: t.clientY };
+      }, { passive: true });
+      box.addEventListener('touchend', e => {
+        const t = e.changedTouches[0];
+        if (!touch || Math.abs(t.clientX - touch.x) > 10 || Math.abs(t.clientY - touch.y) > 10) return;
+        touch = null;
+        e.preventDefault();
+        flip();
+      });
+      return box;
+    }
+    ignoreEvent() { return true; }
+  }
+  class TextWidget extends WidgetType {
+    constructor(text, cls) { super(); this.text = text; this.cls = cls; }
+    eq(o) { return o.text === this.text && o.cls === this.cls; }
+    toDOM() {
+      const s = document.createElement('span');
+      s.className = this.cls;
+      s.textContent = this.text;
+      return s;
+    }
+  }
+
+  const hide = Decoration.replace({});
+  const bullet = Decoration.replace({ widget: new TextWidget('•', 'cm-lp-bullet') });
+  const hr = Decoration.replace({ widget: new TextWidget('', 'cm-lp-hr') });
+  const lineQuote = Decoration.line({ class: 'cm-lp-quote' });
+  const lineCode = Decoration.line({ class: 'cm-lp-codeblock' });
+  const WIKI = /\[\[([^\[\]\n]+)\]\]/g;
+  const CODE_NODES = new Set(['InlineCode', 'FencedCode', 'CodeBlock', 'CodeText']);
+
+  function build(view) {
+    const { state } = view;
+    const doc = state.doc;
+    const ranges = state.selection.ranges;
+    const focused = view.hasFocus;
+    // Marks show around the caret: inline ones when the caret touches the
+    // element, line-level ones (heading #, quote >, list -) on its line.
+    const touches = (from, to) => focused && ranges.some(r => r.from <= to && r.to >= from);
+    const lineActive = pos => {
+      const l = doc.lineAt(pos);
+      return touches(l.from, l.to);
+    };
+    const sameLine = (from, to) => doc.lineAt(from).number === doc.lineAt(to).number;
+    const out = [];
+    const add = (from, to, deco) => { if (from < to) out.push(deco.range(from, to)); };
+    const hideSpan = (from, to) => { if (from < to && sameLine(from, to)) out.push(hide.range(from, to)); };
+    const spaceAfter = pos => (doc.sliceString(pos, pos + 1) === ' ' ? pos + 1 : pos);
+
+    for (const { from, to } of view.visibleRanges) {
+      syntaxTree(state).iterate({
+        from, to,
+        enter(node) {
+          const n = node.name;
+          if (n === 'HeaderMark' && node.node.parent?.name.startsWith('ATXHeading')) {
+            if (!lineActive(node.from)) hideSpan(node.from, spaceAfter(node.to));
+          } else if (n === 'EmphasisMark' || n === 'StrikethroughMark') {
+            const p = node.node.parent;
+            if (p && !touches(p.from, p.to)) hideSpan(node.from, node.to);
+          } else if (n === 'CodeMark' && node.node.parent?.name === 'InlineCode') {
+            const p = node.node.parent;
+            if (!touches(p.from, p.to)) hideSpan(node.from, node.to);
+          } else if (n === 'Link') {
+            const marks = node.node.getChildren('LinkMark');
+            const url = node.node.getChild('URL');
+            if (!url || marks.length < 2 || marks[0].from !== node.from) return false;
+            const text = { from: marks[0].to, to: marks[1].from };
+            const href = doc.sliceString(url.from, url.to);
+            if (text.from < text.to && sameLine(text.from, text.to)) {
+              out.push(Decoration.mark({ class: 'cm-lp-link', attributes: { 'data-href': href } })
+                .range(text.from, text.to));
+            }
+            if (!touches(node.from, node.to)) {
+              hideSpan(node.from, text.from);
+              hideSpan(text.to, node.to);
+            }
+            return false;
+          } else if (n === 'ListMark') {
+            const item = node.node.parent;
+            const task = item?.getChild('Task');
+            if (task) {
+              if (!lineActive(node.from)) hideSpan(node.from, spaceAfter(node.to));
+            } else if (item?.parent?.name === 'BulletList' && !lineActive(node.from)) {
+              add(node.from, node.to, bullet);
+            }
+          } else if (n === 'TaskMarker') {
+            if (!touches(node.from, node.to)) {
+              const checked = /x/i.test(doc.sliceString(node.from + 1, node.to - 1));
+              out.push(Decoration.replace({ widget: new CheckboxWidget(checked, node.from) })
+                .range(node.from, node.to));
+            }
+          } else if (n === 'Blockquote') {
+            for (let p = node.from; p <= node.to;) {
+              const l = doc.lineAt(p);
+              out.push(lineQuote.range(l.from));
+              p = l.to + 1;
+            }
+          } else if (n === 'QuoteMark') {
+            if (!lineActive(node.from)) hideSpan(node.from, spaceAfter(node.to));
+          } else if (n === 'HorizontalRule') {
+            if (!lineActive(node.from) && sameLine(node.from, node.to)) add(node.from, node.to, hr);
+          } else if (n === 'FencedCode' || n === 'CodeBlock') {
+            for (let p = node.from; p <= node.to;) {
+              const l = doc.lineAt(p);
+              out.push(lineCode.range(l.from));
+              p = l.to + 1;
+            }
+          }
+        },
+      });
+
+      // [[wiki links]] are not markdown, so they are found by pattern,
+      // skipping anything inside code.
+      const text = doc.sliceString(from, to);
+      for (const m of text.matchAll(WIKI)) {
+        const s = from + m.index, e = s + m[0].length;
+        let inCode = false;
+        for (let nd = syntaxTree(state).resolveInner(s + 2, 1); nd; nd = nd.parent) {
+          if (CODE_NODES.has(nd.name)) { inCode = true; break; }
+        }
+        if (inCode) continue;
+        const name = m[1].trim();
+        const cls = findNoteByWikiName(name) ? 'cm-lp-wiki' : 'cm-lp-wiki cm-lp-wiki-missing';
+        out.push(Decoration.mark({ class: cls, attributes: { 'data-wiki': name } }).range(s + 2, e - 2));
+        if (!touches(s, e)) { hideSpan(s, s + 2); hideSpan(e - 2, e); }
+      }
+    }
+    return Decoration.set(out, true);
+  }
+
+  const livePreview = ViewPlugin.fromClass(class {
+    constructor(view) { this.decorations = build(view); }
+    update(u) {
+      if (u.docChanged || u.viewportChanged || u.selectionSet || u.focusChanged
+          || syntaxTree(u.startState) !== syntaxTree(u.state)) {
+        this.decorations = build(u.view);
+      }
+    }
+  }, { decorations: v => v.decorations });
+
+  // Hooks into the app: keys go through the textarea's handler first (format
+  // shortcuts, Tab, list continuation — highest precedence so CodeMirror's
+  // own Mod-i/Mod-Enter bindings never see them), links open on click, and
+  // blur/scroll are relayed for the [[ suggestion popup.
+  const appHooks = CM.Prec.highest(EditorView.domEventHandlers({
+    keydown(e) { editorKeydown(e); return e.defaultPrevented; },
+    mousedown(e) {
+      if (e.button !== 0 || e.shiftKey) return false;
+      const wiki = e.target.closest?.('[data-wiki]');
+      const link = e.target.closest?.('[data-href]');
+      if (wiki) {
+        const note = findNoteByWikiName(wiki.dataset.wiki);
+        if (!note) return false;
+        e.preventDefault();
+        openNote(note.id);
+        if (isMobile) hideMobileList();
+        return true;
+      }
+      if (link && /^(https?:|mailto:)/i.test(link.dataset.href)) {
+        e.preventDefault();
+        window.open(link.dataset.href, '_blank', 'noopener');
+        return true;
+      }
+      return false;
+    },
+    blur() { $editor.dispatchEvent(new Event('blur')); return false; },
+    // Only a scroll the user makes closes the popup: CodeMirror also scrolls
+    // on its own to keep the caret in view while typing.
+    wheel() { $editor.dispatchEvent(new Event('scroll')); return false; },
+    touchmove() { $editor.dispatchEvent(new Event('scroll')); return false; },
+  }));
+
+  const toModel = EditorView.updateListener.of(u => {
+    if (!u.docChanged || liveSyncing) return;
+    taValue.set.call($editor, u.state.doc.toString());
+    // After the update has finished: listeners (the [[ popup) read layout,
+    // which CodeMirror forbids mid-update.
+    queueMicrotask(() => $editor.dispatchEvent(new Event('input')));
+  });
+
+  liveExtCache = [
+    CM.history(),
+    CM.keymap.of([...CM.defaultKeymap, ...CM.historyKeymap]),
+    mdLang.extension ?? mdLang,
+    CM.syntaxHighlighting(highlight),
+    livePreview,
+    appHooks,
+    toModel,
+    EditorView.lineWrapping,
+    EditorView.contentAttributes.of({ spellcheck: 'false', 'aria-label': 'Note' }),
+  ];
+  return liveExtCache;
+}
+
+if (LIVE) {
+  liveView = new CM.EditorView({ state: liveState(''), parent: $editor.parentElement });
+  liveView.dom.style.display = 'none';
+  Object.defineProperties($editor, {
+    value: {
+      get() { return taValue.get.call(this); },
+      set(v) { taValue.set.call(this, v); liveSetDoc(taValue.get.call(this)); },
+    },
+    selectionStart: {
+      get() { return liveShown ? liveView.state.selection.main.from : taSelStart.get.call(this); },
+      set(n) {
+        if (!liveShown) return taSelStart.set.call(this, n);
+        liveSelect(n, Math.max(n, liveView.state.selection.main.to));
+      },
+    },
+    selectionEnd: {
+      get() { return liveShown ? liveView.state.selection.main.to : taSelEnd.get.call(this); },
+      set(n) {
+        if (!liveShown) return taSelEnd.set.call(this, n);
+        liveSelect(Math.min(n, liveView.state.selection.main.from), n);
+      },
+    },
+    scrollTop: {
+      get() { return liveShown ? liveView.scrollDOM.scrollTop : elScrollTop.get.call(this); },
+      set(n) { if (liveShown) liveView.scrollDOM.scrollTop = n; else elScrollTop.set.call(this, n); },
+    },
+    setSelectionRange: {
+      value(a, b) { if (liveShown) liveSelect(a, b); else TA.setSelectionRange.call(this, a, b); },
+    },
+    focus: {
+      value(opts) {
+        if (!liveShown) return HTMLElement.prototype.focus.call(this, opts);
+        liveView.focus();
+        // Re-assert the selection: after a fresh state (new note) focus alone
+        // can leave the DOM caret outside the content, and typing goes nowhere.
+        const { anchor, head } = liveView.state.selection.main;
+        liveView.dispatch({ selection: { anchor, head } });
+      },
+    },
+  });
+}
+
+// Live view on (rendered, editable) or off (the raw textarea). Replaces the
+// read-only preview when LIVE is set; setPreviewMode routes here.
+function setLiveMode(on, focus) {
+  if (on && !liveShown) {
+    const a = taSelStart.get.call($editor), b = taSelEnd.get.call($editor);
+    liveSetDoc(taValue.get.call($editor));
+    liveShown = true;
+    $editor.style.display = 'none';
+    liveView.dom.style.display = '';
+    liveView.dispatch({ selection: { anchor: Math.min(a, liveView.state.doc.length), head: Math.min(b, liveView.state.doc.length) } });
+    liveView.requestMeasure();
+  } else if (!on && liveShown) {
+    const { from, to } = liveView.state.selection.main;
+    liveShown = false;
+    liveView.dom.style.display = 'none';
+    $editor.style.display = '';
+    TA.setSelectionRange.call($editor, from, to);
+  }
+  $preview.style.display = 'none';
+  $btnPreview.classList.toggle('active', !on);
+  $btnPreview.innerHTML = icon(on ? 'code' : 'eye');
+  $btnPreview.title = on ? 'Source (Ctrl+M)' : 'Live preview (Ctrl+M)';
+  if (focus) $editor.focus();
+}
+
+// === SECTION: API ===
+async function apiFetch(path, options = {}) {
+  const headers = { 'Authorization': `Bearer ${apiToken}`, ...options.headers };
+  if (options.body && typeof options.body === 'object') {
+    headers['Content-Type'] = 'application/json';
+    options.body = JSON.stringify(options.body);
+  }
+  const res = await fetch(path, { ...options, headers });
+  return res;
+}
+
+// === SECTION: AUTH ===
+function showAuth() {
+  $authScreen.style.display = 'flex';
+  $app.classList.remove('active');
+  $authToken.focus();
+}
+
+function showApp() {
+  $authScreen.style.display = 'none';
+  $app.classList.add('active');
+  applySidebarState();
+  loadNotes();
+  fetch('/health').then(r => r.json()).then(h => {
+    if (h.version) document.getElementById('app-version').textContent = 'v' + h.version;
+  }).catch(() => {});
+}
+
+$authSubmit.addEventListener('click', async () => {
+  const token = $authToken.value.trim();
+  if (!token) return;
+  try {
+    const res = await fetch('/health');
+    if (!res.ok) throw new Error();
+    // Try to list notes to validate token
+    const r = await fetch('/api/notes?limit=1', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (r.ok) {
+      apiToken = token;
+      localStorage.setItem('hexnotes_token', token);
+      showApp();
+    } else {
+      $authError.style.display = 'block';
+    }
+  } catch {
+    $authError.textContent = 'Cannot reach the server';
+    $authError.style.display = 'block';
+  }
+});
+
+$authToken.addEventListener('keydown', e => {
+  if (e.key === 'Enter') $authSubmit.click();
+});
+
+// === SECTION: NOTES LIST ===
+
+// Page size for the loop below — not a cap on how many notes the app shows.
+const NOTES_PAGE_SIZE = 200;
+// A runaway guard, nothing more: offset always advances, so the loop ends on
+// its own unless the server ignores offset entirely.
+const NOTES_MAX_PAGES = 50;
+
+// Fetches the whole note list, one page at a time.
+//
+// The sidebar groups and sorts locally (Ephemeral, Pinned, All notes, tags), and
+// backlinks and wiki-link autocomplete read the content of every note, so the
+// client needs all of them before it can draw. A single hardcoded limit=200
+// meant that once the collection passed 200, the oldest notes simply stopped
+// appearing — no error, nothing to notice. Paging until a short page arrives
+// removes the ceiling instead of moving it.
+async function fetchAllNotes(q) {
+  const all = [];
+  for (let page = 0; page < NOTES_MAX_PAGES; page++) {
+    let url = `/api/notes?limit=${NOTES_PAGE_SIZE}&offset=${page * NOTES_PAGE_SIZE}`;
+    if (q) url += `&q=${encodeURIComponent(q)}`;
+    const res = await apiFetch(url);
+    if (!res.ok) {
+      const err = new Error('could not fetch notes');
+      err.status = res.status;
+      throw err;
+    }
+    const batch = await res.json();
+    all.push(...batch);
+    if (batch.length < NOTES_PAGE_SIZE) break;
+  }
+  return all;
+}
+
+async function loadNotes() {
+  try {
+    const q = $searchInput.value.trim();
+    const seq = localWriteSeq;
+    notes = await fetchAllNotes(q);
+    syncActiveNoteFrom(notes, seq);
+    renderNotesList();
+    if (!draftsRestored && !q) { draftsRestored = true; restoreDrafts(); }
+    // Restore active note — URL hash (deep link) wins, then home.md start page
+    if (!activeNoteId && !isNew) {
+      const hashId = decodeURIComponent(location.hash.slice(1));
+      const home = notes.find(n => n.id === 'home');
+      const lastId = localStorage.getItem('hexnotes_lastNote');
+      if (hashId && notes.find(n => n.id === hashId)) {
+        openNote(hashId);
+      } else if (home) {
+        openNote(home.id);
+        setPreviewMode(true); // start page renders with clickable wiki-links
+      } else if (lastId && notes.find(n => n.id === lastId)) {
+        openNote(lastId);
+      } else if (notes.length > 0) {
+        openNote(notes[0].id);
+      } else {
+        showEmpty();
+      }
+    } else {
+      renderNotesList();
+    }
+    clearListError();
+  } catch (err) {
+    showListError(err);
+  }
+}
+
+// A failed fetch used to be swallowed, leaving an empty sidebar that looked
+// exactly like "all notes are gone" (#13). Say what went wrong instead, and
+// keep whatever list was already on screen.
+function showListError(err) {
+  let msg;
+  if (err && err.status === 401) {
+    msg = 'The server rejected the token (401) — notes could not be loaded.';
+  } else if (err && err.status) {
+    msg = `The server answered ${err.status} — notes could not be loaded.`;
+  } else {
+    msg = 'Cannot reach the server — notes could not be loaded.';
+    goOffline();
+  }
+  if (notes.length > 0) msg += ' Showing the last loaded list.';
+  $listErrorText.textContent = msg;
+  $listError.style.display = 'block';
+  // On mobile the error lives in the hidden list view; with no note open the
+  // editor is blank anyway, so switch to the list where the message shows.
+  if (isMobile && !mobileShowList && !activeNoteId) showMobileList();
+}
+
+function clearListError() {
+  $listError.style.display = 'none';
+}
+
+document.getElementById('btn-list-retry').addEventListener('click', () => loadNotes());
+
+// === SECTION: AUTO-REFRESH ===
+// The note list stays fresh without a manual reload: a poll every 30 seconds
+// (only while the tab is visible) + immediately when the tab regains focus.
+// Only re-renders when the list actually changed, so scroll position and
+// ongoing edits are not disturbed.
+function notesSignature(list) {
+  return JSON.stringify(list.map(n => [n.id, n.updated_at, n.pinned]));
+}
+
+async function pollNotes() {
+  if (document.hidden || !apiToken) return;
+  try {
+    const q = $searchInput.value.trim();
+    const seq = localWriteSeq;
+    const fresh = await fetchAllNotes(q);
+    syncActiveNoteFrom(fresh, seq);
+    if (notesSignature(fresh) !== notesSignature(notes)) {
+      notes = fresh;
+      renderNotesList();
+    }
+    clearListError();
+  } catch (err) {
+    // The next poll tries again, but the emptiness must not look like an answer
+    showListError(err);
+  }
+}
+
+setInterval(pollNotes, 30000);
+
+// The open note is also checked every 5 seconds while visible, so an edit
+// made on another device shows up within seconds instead of waiting for the
+// list poll. One small request; skipped while typing or saving.
+async function pollActiveNote() {
+  if (document.hidden || !apiToken || !isOnline || !activeNoteId || isNew) return;
+  if (pendingContent !== null || isSaving) return;
+  const id = activeNoteId, seq = localWriteSeq;
+  try {
+    const res = await apiFetch(`/api/notes/${encodeURIComponent(id)}`);
+    if (!res.ok || id !== activeNoteId) return;
+    syncActiveNoteFrom([await res.json()], seq);
+  } catch {}
+}
+setInterval(pollActiveNote, 5000);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) pollNotes();
+});
+
+function escapeHtml(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Renders `text` into `el`, wrapping the first case-insensitive `query` match
+// in <mark>. Plain text when there is no query or no match. `offset` skips a
+// leading prefix that is not part of the searchable text (e.g. the "#" on a tag).
+function setHighlighted(el, text, query, offset = 0) {
+  const q = (query || '').toLowerCase();
+  const idx = q ? text.toLowerCase().indexOf(q, offset) : -1;
+  if (idx < 0) {
+    el.textContent = text;
+    return;
+  }
+  el.innerHTML = escapeHtml(text.slice(0, idx)) +
+    '<mark>' + escapeHtml(text.slice(idx, idx + q.length)) + '</mark>' +
+    escapeHtml(text.slice(idx + q.length));
+}
+
+function ttlLabel(expiresAt) {
+  const ms = new Date(expiresAt) - new Date();
+  if (ms <= 0) return 'expired';
+  const h = Math.floor(ms / 3600000);
+  if (h >= 1) return h + 'h left';
+  return Math.max(1, Math.floor(ms / 60000)) + 'm left';
+}
+
+function refreshEphemeralBadges() {
+  for (const el of document.querySelectorAll('.eph-ttl')) {
+    el.textContent = '\u23f3 ' + ttlLabel(el.dataset.expiresAt);
+  }
+  updateEphemeralBadge();
+}
+setInterval(refreshEphemeralBadges, 60000);
+
+function updateEphemeralBadge() {
+  const isEphemeral = (isNew && ephemeralArmed) ||
+    (!!activeExpiresAt && new Date(activeExpiresAt) > new Date());
+  $ephemeralBadge.style.display = isEphemeral ? 'inline-flex' : 'none';
+  if (!isEphemeral) return;
+  $ephemeralBadge.textContent = isNew
+    ? '\u23f3 Ephemeral - 48h'
+    : '\u23f3 Ephemeral - ' + ttlLabel(activeExpiresAt);
+}
+
+function makeNoteCard(n) {
+  const card = document.createElement('div');
+  const isEphemeral = !!n.expires_at && new Date(n.expires_at) > new Date();
+  card.className = 'note-card' + (n.id === activeNoteId ? ' active' : '') +
+    (n.pinned ? ' pinned' : '') + (isEphemeral ? ' ephemeral' : '');
+  card.dataset.id = n.id;
+
+  const preview = document.createElement('div');
+  preview.className = 'note-card-preview';
+  setHighlighted(preview, n.filename, $searchInput.value.trim());
+
+  const meta = document.createElement('div');
+  meta.className = 'note-card-meta';
+
+  for (const t of n.tags.slice(0, 4)) {
+    const chip = document.createElement('span');
+    chip.className = 'tag-chip';
+    chip.textContent = '#' + t;
+    meta.appendChild(chip);
+  }
+
+  const dateSpan = document.createElement('span');
+  dateSpan.className = 'note-card-date';
+  dateSpan.textContent = relativeDate(n.updated_at);
+  meta.appendChild(dateSpan);
+
+  if (isEphemeral) {
+    const ttl = document.createElement('span');
+    ttl.className = 'eph-ttl';
+    ttl.dataset.expiresAt = n.expires_at;
+    ttl.textContent = '\u23f3 ' + ttlLabel(n.expires_at);
+    meta.appendChild(ttl);
+  }
+
+  card.appendChild(preview);
+
+  // Snippet: show matching line excerpt when search is active
+  if (n.snippet) {
+    const snippetEl = document.createElement('div');
+    snippetEl.className = 'note-card-snippet';
+    setHighlighted(snippetEl, n.snippet, $searchInput.value.trim());
+    card.appendChild(snippetEl);
+  }
+
+  card.appendChild(meta);
+
+  card.addEventListener('click', () => {
+    openNote(n.id);
+    if (isMobile) hideMobileList();
+  });
+
+  return card;
+}
+
+// In Ephemeral, Pinned and the tag groups the newest-created note comes first
+// (#14), so an old note that gets edited stays where it was instead of jumping
+// to the top. Notes created the same day share a midnight created_at; the
+// latest edit breaks the tie.
+function sortNewestCreated(list) {
+  const t = v => Date.parse(v) || 0;
+  return [...list].sort((a, b) =>
+    (t(b.created_at) - t(a.created_at)) || (t(b.updated_at) - t(a.updated_at)));
+}
+
+// All notes is the one list where everything shows up, tagged or not, so it is
+// ordered by last edit — what you just wrote or touched is on top — and split
+// under a few date headings. Kept deliberately short: four buckets, empty ones
+// are skipped. Dates are the viewer's local calendar days.
+function sortRecentlyUpdated(list) {
+  const t = v => Date.parse(v) || 0;
+  return [...list].sort((a, b) => t(b.updated_at) - t(a.updated_at));
+}
+
+function dateBucket(iso, now = new Date()) {
+  const startOfDay = d => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const today = startOfDay(now);
+  const day = 86400000;
+  const t = Date.parse(iso) || 0;
+  if (t >= today) return 'Today';
+  if (t >= today - day) return 'Yesterday';
+  if (t >= today - 6 * day) return 'Last 7 days';
+  return 'Older';
+}
+
+function appendDateBuckets(body, list) {
+  let current = null;
+  for (const n of sortRecentlyUpdated(list)) {
+    const bucket = dateBucket(n.updated_at);
+    if (bucket !== current) {
+      const h = document.createElement('div');
+      h.className = 'date-bucket';
+      h.textContent = bucket;
+      body.appendChild(h);
+      current = bucket;
+    }
+    body.appendChild(makeNoteCard(n));
+  }
+}
+
+function renderNoteGroup(key, label, groupNotes, parent = $notesList, defaultCollapsed = false, fill = null) {
+  if (groupNotes.length === 0) return;
+
+  if (!(key in collapsedGroups)) collapsedGroups[key] = defaultCollapsed;
+  const isCollapsed = !!collapsedGroups[key];
+
+  const header = document.createElement('div');
+  header.className = 'group-header' + (isCollapsed ? ' collapsed' : '');
+
+  const toggle = document.createElement('span');
+  toggle.className = 'group-toggle';
+  toggle.innerHTML = icon('chevron-down');
+  header.appendChild(toggle);
+
+  const labelSpan = document.createElement('span');
+  labelSpan.className = 'group-label';
+  labelSpan.innerHTML = label; // callers pass icon() + escaped text
+  header.appendChild(labelSpan);
+
+  const countBadge = document.createElement('span');
+  countBadge.className = 'group-count';
+  countBadge.textContent = groupNotes.length;
+  header.appendChild(countBadge);
+
+  const body = document.createElement('div');
+  body.className = 'group-body' + (isCollapsed ? ' collapsed' : '');
+
+  header.addEventListener('click', () => {
+    collapsedGroups[key] = !collapsedGroups[key];
+    localStorage.setItem('hexnotes_collapsed_groups', JSON.stringify(collapsedGroups));
+    header.classList.toggle('collapsed');
+    body.classList.toggle('collapsed');
+  });
+
+  if (fill) {
+    fill(body, groupNotes);
+  } else {
+    for (const n of sortNewestCreated(groupNotes)) {
+      body.appendChild(makeNoteCard(n));
+    }
+  }
+
+  parent.appendChild(header);
+  parent.appendChild(body);
+}
+
+// === SECTION: COLLAPSE ALL ===
+const $btnCollapseAll = document.getElementById('btn-collapse-all');
+let allCollapsed = false;
+
+$btnCollapseAll.addEventListener('click', () => {
+  allCollapsed = !allCollapsed;
+  $btnCollapseAll.innerHTML = allCollapsed
+    ? icon('chevrons-up-down') + '<span>expand all</span>'
+    : icon('chevrons-down-up') + '<span>collapse all</span>';
+  // Apply to all current group keys in collapsedGroups and in the DOM
+  document.querySelectorAll('.group-header').forEach(h => {
+    if (allCollapsed) h.classList.add('collapsed');
+    else h.classList.remove('collapsed');
+  });
+  document.querySelectorAll('.group-body').forEach(b => {
+    if (allCollapsed) b.classList.add('collapsed');
+    else b.classList.remove('collapsed');
+  });
+  // Sync to collapsedGroups state
+  for (const key of Object.keys(collapsedGroups)) {
+    collapsedGroups[key] = allCollapsed;
+  }
+  localStorage.setItem('hexnotes_collapsed_groups', JSON.stringify(collapsedGroups));
+});
+
+// === SECTION: NOTES LIST ===
+function renderNotesList() {
+  $notesList.innerHTML = '';
+
+  if (notes.length === 0) {
+    const empty = document.createElement('div');
+    empty.style.cssText = 'padding:16px 12px; font-size:12px; color:var(--text-muted);';
+    empty.textContent = 'No notes';
+    $notesList.appendChild(empty);
+    return;
+  }
+
+  // When search is active: flat list, no grouping, all results visible
+  const q = $searchInput.value.trim();
+  if (q) {
+    const header = document.createElement('div');
+    header.style.cssText = 'padding:8px 12px 4px; font-size:11px; color:var(--text-muted); display:flex; justify-content:space-between;';
+    header.innerHTML = `<span>Results</span><span style="background:var(--bg-card);padding:1px 6px;border-radius:9999px;">${notes.length}</span>`;
+    $notesList.appendChild(header);
+    for (const n of notes) $notesList.appendChild(makeNoteCard(n));
+    return;
+  }
+
+  // Ephemeral group first: notes with a live expires_at
+  const ephemeral = notes.filter(n => n.expires_at && new Date(n.expires_at) > new Date());
+  renderNoteGroup('ephemeral', '\u23f3<span>Ephemeral</span>', ephemeral);
+
+  // Pinned group (excluding ephemeral ones, they already have their own section)
+  const pinned = notes.filter(n => n.pinned && !(n.expires_at && new Date(n.expires_at) > new Date()));
+  renderNoteGroup('pinned', icon('pin') + '<span>Pinned</span>', pinned);
+
+  const unpinned = notes.filter(n => !n.pinned && !(n.expires_at && new Date(n.expires_at) > new Date()));
+
+  // All notes: every unpinned note, tagged or not, last edited first. Tagged
+  // notes also appear in their tag groups below.
+  renderNoteGroup('all', icon('inbox') + '<span>All notes</span>', unpinned, $notesList, false, appendDateBuckets);
+
+  // Tags parent section: all tagged notes grouped by tag
+  const allTags = [...new Set(unpinned.flatMap(n => n.tags))].sort();
+  if (allTags.length > 0) renderTagsSection(unpinned, allTags);
+}
+
+function renderTagsSection(unpinned, allTags) {
+  if (!('tags_parent' in collapsedGroups)) collapsedGroups['tags_parent'] = false;
+  const isCollapsed = !!collapsedGroups['tags_parent'];
+
+  const header = document.createElement('div');
+  header.className = 'group-header' + (isCollapsed ? ' collapsed' : '');
+
+  const toggle = document.createElement('span');
+  toggle.className = 'group-toggle';
+  toggle.innerHTML = icon('chevron-down');
+  header.appendChild(toggle);
+
+  const labelSpan = document.createElement('span');
+  labelSpan.className = 'group-label';
+  labelSpan.innerHTML = icon('tags') + '<span>Tags</span>';
+  header.appendChild(labelSpan);
+
+  const countBadge = document.createElement('span');
+  countBadge.className = 'group-count';
+  countBadge.textContent = allTags.length;
+  header.appendChild(countBadge);
+
+  const body = document.createElement('div');
+  body.className = 'group-body' + (isCollapsed ? ' collapsed' : '');
+  body.style.paddingLeft = '8px';
+
+  header.addEventListener('click', () => {
+    collapsedGroups['tags_parent'] = !collapsedGroups['tags_parent'];
+    localStorage.setItem('hexnotes_collapsed_groups', JSON.stringify(collapsedGroups));
+    header.classList.toggle('collapsed');
+    body.classList.toggle('collapsed');
+  });
+
+  for (const tag of allTags) {
+    const tagNotes = unpinned.filter(n => n.tags.includes(tag));
+    renderNoteGroup('tag_' + tag, '<span>' + escapeHtml('#' + tag) + '</span>', tagNotes, body, true);
+  }
+
+  $notesList.appendChild(header);
+  $notesList.appendChild(body);
+}
+
+// Counts calendar days, not 24-hour spans, so the card agrees with the date
+// headings in All notes: a note edited at 18:00 yesterday says "yesterday"
+// the next morning, not "today".
+function relativeDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const now = new Date();
+  const startOfDay = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diffDays = Math.round((startOfDay(now) - startOfDay(d)) / 86400000);
+  if (diffDays === 0) return 'today';
+  if (diffDays === 1) return 'yesterday';
+  if (diffDays < 7) return `${diffDays} days ago`;
+  return d.toLocaleDateString('en-GB');
+}
+
+// === SECTION: OPEN NOTE ===
+function openNote(id) {
+  flushPending();
+  editSession++;
+  if (isNew && pendingContent === null) {
+    // Abandon unsaved empty new note
+    isNew = false;
+    newNoteFilename = null;
+  }
+  const note = notes.find(n => n.id === id);
+  if (!note) return;
+  activeNoteId = id;
+  isNew = false;
+  newNoteFilename = null;
+  ephemeralArmed = false;
+  activeExpiresAt = note.expires_at;
+  localStorage.setItem('hexnotes_lastNote', id);
+
+  $filenameDisplay.textContent = note.filename;
+  updateEphemeralBadge();
+  $filenameDisplay.style.display = '';
+  $filenameEditBtn.style.display = '';
+  $filenameInput.style.display = 'none';
+  $filenameError.style.display = 'none';
+  $errorBar.style.display = 'none';
+
+  // Update pin button state
+  $filenamePinBtn.title = note.pinned ? 'Unpin' : 'Pin to top';
+  $filenamePinBtn.classList.toggle('active', note.pinned);
+
+  $editor.value = note.content;
+  activeVersion = note.version;
+  noteHadContent = !!note.content.trim();
+  $emptyState.style.display = 'none';
+  $editor.parentElement.style.display = 'flex';
+  $filenameRow.style.display = 'flex';
+  // Notes open rendered; Ctrl+M or the eye toggles editing. Empty notes go
+  // straight to the editor — a blank preview is useless.
+  setPreviewMode(LIVE || noteHadContent);
+
+  pendingContent = null;
+  clearTimeout(saveTimer);
+  retryCount = 0;
+  clearTimeout(retryTimer);
+  hideSaveIndicator();
+  hideConflictBar();
+
+  pushNoteHash(id);
+  renderNotesList();
+}
+
+function showEmpty() {
+  editSession++;
+  activeNoteId = null;
+  activeVersion = null;
+  activeExpiresAt = null;
+  ephemeralArmed = false;
+  updateEphemeralBadge();
+  setPreviewMode(false);
+  $emptyState.style.display = 'flex';
+  $editor.parentElement.style.display = 'none';
+  $filenameRow.style.display = 'none';
+  $errorBar.style.display = 'none';
+  $filenameError.style.display = 'none';
+  hideConflictBar();
+  $editor.value = '';
+}
+
+// === SECTION: NEW NOTE ===
+function createNewNote(ephemeral = false) {
+  flushPending();
+  editSession++;
+  activeNoteId = null;
+  isNew = true;
+  newNoteFilename = null;
+  pendingContent = null;
+  activeVersion = null;
+  noteHadContent = false;
+  ephemeralArmed = ephemeral;
+  activeExpiresAt = null;
+  updateEphemeralButton();
+  updateEphemeralBadge();
+  hideConflictBar();
+
+  $filenameDisplay.textContent = 'new-note.md';
+  $filenameDisplay.style.display = '';
+  $filenameEditBtn.style.display = '';
+  $filenameInput.style.display = 'none';
+  $filenameError.style.display = 'none';
+  $errorBar.style.display = 'none';
+  $filenamePinBtn.classList.remove('active');
+  $filenamePinBtn.title = 'Pin to top';
+
+  $editor.value = '';
+  $emptyState.style.display = 'none';
+  $editor.parentElement.style.display = 'flex';
+  $filenameRow.style.display = 'flex';
+  setPreviewMode(LIVE); // an empty note has nothing to render — straight to editing (live is editable)
+
+  renderNotesList();
+
+  if (isMobile) hideMobileList();
+
+  // The caret starts in the name field: type a name, or press Enter (Tab,
+  // ↓) to go straight to the text. Left empty — or tapping into the text —
+  // gives the usual date-and-slug filename on first save.
+  startRename(true);
+}
+
+// === SECTION: LOCAL DRAFTS ===
+// Every keystroke is mirrored to localStorage until the server confirms it,
+// so text typed just before the app is closed — or killed by iOS — survives:
+// the next start sends it up (restoreDrafts). One entry per note; '' is a
+// note that has not been created on the server yet.
+const DRAFTS_KEY = 'hexnotes_drafts';
+let draftsRestored = false;
+
+function readDrafts() {
+  try { return JSON.parse(localStorage.getItem(DRAFTS_KEY)) || {}; } catch { return {}; }
+}
+function writeDrafts(d) {
+  try {
+    if (Object.keys(d).length) localStorage.setItem(DRAFTS_KEY, JSON.stringify(d));
+    else localStorage.removeItem(DRAFTS_KEY);
+  } catch {}
+}
+function putDraft(content) {
+  if (!activeNoteId && !isNew) return;
+  const d = readDrafts();
+  d[isNew ? '' : activeNoteId] = {
+    content, base: activeVersion, filename: newNoteFilename,
+    ephemeral: isNew && ephemeralArmed, t: Date.now(),
+  };
+  writeDrafts(d);
+}
+// Without `content`, drops unconditionally (delete, "load theirs").
+function dropDraft(key, content) {
+  const d = readDrafts();
+  if (!d[key] || (content !== undefined && d[key].content !== content)) return;
+  delete d[key];
+  writeDrafts(d);
+}
+// A new note just got its id: what was typed meanwhile now belongs to it.
+function moveDraft(from, to, base) {
+  const d = readDrafts();
+  if (!d[from]) return;
+  d[to] = { ...d[from], base, filename: null, ephemeral: false };
+  delete d[from];
+  writeDrafts(d);
+}
+
+// Runs once, after the first note list has loaded. A draft whose text is
+// already on the server is just dropped. One for an unchanged note is saved
+// onto it; if the note changed elsewhere since (or is gone), the draft is
+// never written over it — it becomes a note of its own.
+async function restoreDrafts() {
+  const d = readDrafts();
+  let restored = 0;
+  for (const [key, dr] of Object.entries(d)) {
+    if (key === (isNew ? '' : activeNoteId) && pendingContent !== null) continue; // being typed here now
+    const done = () => {
+      const cur = readDrafts();
+      if (cur[key] && cur[key].t === dr.t) { delete cur[key]; writeDrafts(cur); }
+    };
+    if (!dr || typeof dr.content !== 'string' || !dr.content.trim()) { done(); continue; }
+    const note = key ? notes.find(n => n.id === key) : null;
+    if (note ? note.content === dr.content : notes.some(n => n.content === dr.content)) { done(); continue; }
+    try {
+      let res;
+      if (note && dr.base && note.version === dr.base) {
+        res = await apiFetch(`/api/notes/${encodeURIComponent(key)}`, {
+          method: 'PATCH', body: { content: dr.content, base_version: dr.base },
+        });
+      } else {
+        const body = { content: dr.content };
+        if (!key && dr.filename) body.filename = dr.filename;
+        if (!key && dr.ephemeral) body.ttl_hours = 48;
+        res = await apiFetch('/api/notes', { method: 'POST', body });
+      }
+      if (res.ok) { done(); restored++; }
+    } catch {}
+  }
+  if (restored) {
+    localWriteSeq++;
+    await loadNotes();
+    showErrorBar(restored === 1
+      ? 'Restored text that had not been saved last time'
+      : `Restored ${restored} unsaved texts from last time`);
+  }
+}
+
+// Leaving the app (switching away, locking the phone, swiping it closed) or
+// the note sends unsaved text at once instead of waiting out the debounce.
+// keepalive lets the request finish even if the page is torn down; the local
+// draft covers the case where even that does not make it. A save already in
+// flight is left alone — the draft keeps what it does not cover.
+function flushPending({ keepalive = false } = {}) {
+  if (pendingContent === null || isSaving || !isOnline) return;
+  if (!activeNoteId && !isNew) return;
+  clearTimeout(saveTimer);
+  // keepalive bodies are capped at 64 kB by the browser
+  save(pendingContent, { keepalive: keepalive && pendingContent.length < 60000 });
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) flushPending({ keepalive: true });
+});
+window.addEventListener('pagehide', () => flushPending({ keepalive: true }));
+
+// === SECTION: AUTOSAVE ===
+$editor.addEventListener('input', () => {
+  const content = $editor.value;
+  pendingContent = content;
+  putDraft(content);
+  showUnsaved();
+  if (content.trim()) noteHadContent = true;
+  clearTimeout(saveTimer);
+
+  if (!isOnline) return;
+
+  saveTimer = setTimeout(() => save(content), 1000);
+});
+
+async function save(content, { keepalive = false } = {}) {
+  if (isSaving) return;
+
+  // Don't autosave empty content — trash only on blur
+  if (!content || !content.trim()) return;
+
+  isSaving = true;
+  showSaving();
+  // Capture what this save is about. The user can switch notes while the
+  // request is in flight; the continuation below must not write state
+  // belonging to note A into whatever note is open when it resolves.
+  const isNewSave = isNew;
+  const savedId = activeNoteId;
+  const session = editSession;
+
+  try {
+    let res;
+    if (isNew) {
+      const body = { content };
+      if (newNoteFilename) body.filename = newNoteFilename;
+      if (ephemeralArmed) body.ttl_hours = 48;
+      res = await apiFetch('/api/notes', { method: 'POST', body, keepalive });
+    } else if (activeNoteId) {
+      const body = { content };
+      if (activeVersion) body.base_version = activeVersion;
+      res = await apiFetch(`/api/notes/${encodeURIComponent(activeNoteId)}`, {
+        method: 'PATCH',
+        body,
+        keepalive,
+      });
+    } else {
+      isSaving = false;
+      return;
+    }
+
+    // Did the user move on while we were waiting?
+    // (isNew alone is not enough: the user may have started another new note)
+    const stillCurrent = isNewSave ? isNew && session === editSession : activeNoteId === savedId;
+
+    if (res.ok) {
+      localWriteSeq++; // invalidate any list fetch issued before this write
+      dropDraft(isNewSave ? '' : savedId, content);
+      if (isNew && stillCurrent) {
+        const created = await res.json();
+        activeNoteId = created.id;
+        activeVersion = created.version;
+        isNew = false;
+        newNoteFilename = null;
+        ephemeralArmed = false;
+        activeExpiresAt = created.expires_at;
+        localStorage.setItem('hexnotes_lastNote', created.id);
+        moveDraft('', created.id, created.version);
+        pushNoteHash(created.id);
+        $filenameDisplay.textContent = created.filename;
+        updateEphemeralBadge();
+      }
+      if (stillCurrent) {
+        // Only clear the buffer if nothing new was typed while in flight —
+        // otherwise those keystrokes would look saved when they are not.
+        if (pendingContent === content) pendingContent = null;
+        retryCount = 0;
+        clearTimeout(retryTimer);
+        hideErrorBar();
+        if (pendingContent === null) showSaved(); else showUnsaved();
+        if (!isNewSave) {
+          // PATCH returns the stored note — adopt its version as our new base
+          try {
+            const updated = await res.json();
+            if (updated && updated.version) {
+              activeVersion = updated.version;
+              activeExpiresAt = updated.expires_at;
+              updateEphemeralBadge();
+            }
+          } catch {
+            // 204 (trashed) or empty body — nothing to adopt
+          }
+        }
+      }
+      // Refresh the list
+      try {
+        notes = await fetchAllNotes();
+        renderNotesList();
+      } catch {
+        // The list is refetched on the next poll
+      }
+    } else if (res.status === 409) {
+      // Someone else (AI agent, another device) wrote while we had it open.
+      // Never retry — that is exactly the overwrite we are preventing.
+      if (!stillCurrent) return; // user moved on; not their problem any more
+      let theirs = null;
+      try {
+        const data = await res.json();
+        theirs = data && data.detail ? data.detail : null;
+      } catch {
+        // fall through to a version-less conflict
+      }
+      showConflictBar(theirs);
+    } else if (stillCurrent) {
+      showErrorBar('Could not save – server returned an error');
+      scheduleRetry(content);
+    }
+  } catch (err) {
+    if (!navigator.onLine) {
+      goOffline();
+    } else {
+      showErrorBar('Could not save – check your connection');
+      scheduleRetry(content);
+    }
+  } finally {
+    isSaving = false;
+  }
+}
+
+function scheduleRetry(content) {
+  retryCount++;
+  if (retryCount <= 3) {
+    retryTimer = setTimeout(() => {
+      if (pendingContent !== null) {
+        save(pendingContent);
+      } else {
+        save(content);
+      }
+    }, 5000);
+  }
+}
+
+// NOTE: there used to be an auto-trash-on-blur here (PATCH with empty
+// content when the editor lost focus while blank). Removed 2026-07-24 — a
+// blur is not proof of intent, it fires on any interruption (notification,
+// app switch, phone lock, autocomplete stealing focus), including mid-edit
+// moments like a select-all-then-retype. That raced a real note (home.md)
+// into the trash on 2026-07-13. Deletion now only happens through the
+// explicit delete button (DELETE /api/notes/{id}, see pendingDeleteId flow).
+
+// === SECTION: SAVE INDICATOR ===
+// ● grey = typed but not on the server yet, ··· = saving, ✓ green = saved.
+// The ✓ stays (dimmed) so a glance before closing the app tells the state.
+let savedFadeTimer = null;
+function showUnsaved() {
+  clearTimeout(savedFadeTimer);
+  $saveIndicator.textContent = '●';
+  $saveIndicator.style.color = 'var(--text-muted)';
+  $saveIndicator.style.opacity = '1';
+  $saveIndicator.style.animation = 'none';
+}
+
+function showSaving() {
+  clearTimeout(savedFadeTimer);
+  $saveIndicator.style.color = 'var(--text-muted)';
+  $saveIndicator.textContent = '···';
+  $saveIndicator.style.opacity = '1';
+  $saveIndicator.style.animation = 'pulse 1s infinite';
+}
+
+function showSaved() {
+  clearTimeout(savedFadeTimer);
+  $saveIndicator.textContent = '✓';
+  $saveIndicator.style.color = 'var(--accent)';
+  $saveIndicator.style.animation = 'none';
+  $saveIndicator.style.opacity = '1';
+  savedFadeTimer = setTimeout(() => { $saveIndicator.style.opacity = '0.45'; }, 2000);
+}
+
+function hideSaveIndicator() {
+  clearTimeout(savedFadeTimer);
+  $saveIndicator.style.opacity = '0';
+  $saveIndicator.style.animation = 'none';
+}
+
+// === SECTION: ERROR BAR ===
+const $errorBarMsg = document.getElementById('error-bar-msg');
+const $errorBarRetry = document.getElementById('error-bar-retry');
+const $errorBarDismiss = document.getElementById('error-bar-dismiss');
+
+$errorBarDismiss.addEventListener('click', (e) => {
+  e.stopPropagation();
+  hideErrorBar();
+  retryCount = 3; // stop further auto-retries
+  clearTimeout(retryTimer);
+});
+
+$errorBarRetry.addEventListener('click', (e) => {
+  e.stopPropagation();
+  retryCount = 0;
+  clearTimeout(retryTimer);
+  if (pendingContent !== null) save(pendingContent);
+  else if (activeNoteId) save($editor.value);
+});
+
+function showErrorBar(msg) {
+  $errorBarMsg.textContent = '⚠ ' + msg;
+  $errorBar.style.display = 'flex';
+}
+
+function hideErrorBar() {
+  $errorBar.style.display = 'none';
+}
+
+// === SECTION: CONFLICT HANDLING ===
+const $conflictBar = document.getElementById('conflict-bar');
+const $conflictBarMsg = document.getElementById('conflict-bar-msg');
+const $conflictBarReload = document.getElementById('conflict-bar-reload');
+const $conflictBarKeep = document.getElementById('conflict-bar-keep');
+
+// Their version, held until the user picks a side.
+let conflictTheirs = null;
+
+function showConflictBar(detail) {
+  conflictTheirs = detail || null;
+  $conflictBarMsg.textContent = 'This note was changed elsewhere – your edit was not saved';
+  $conflictBar.style.display = 'flex';
+}
+
+function hideConflictBar() {
+  $conflictBar.style.display = 'none';
+  conflictTheirs = null;
+}
+
+// "Load theirs" — discard the local buffer and show what is on disk.
+$conflictBarReload.addEventListener('click', async () => {
+  if (conflictTheirs && typeof conflictTheirs.content === 'string') {
+    $editor.value = conflictTheirs.content;
+    activeVersion = conflictTheirs.version;
+  } else if (activeNoteId) {
+    // No payload (or a stale bar) — refetch
+    try {
+      const r = await apiFetch(`/api/notes/${encodeURIComponent(activeNoteId)}`);
+      if (r.ok) {
+        const fresh = await r.json();
+        $editor.value = fresh.content;
+        activeVersion = fresh.version;
+      }
+    } catch {
+      return; // offline — keep the bar up so the user can retry
+    }
+  }
+  pendingContent = null;
+  if (activeNoteId) dropDraft(activeNoteId);
+  clearTimeout(saveTimer);
+  if (isPreviewMode) setPreviewMode(true); // re-render with the new content
+  hideConflictBar();
+  showSaved();
+});
+
+// "Keep mine" — deliberately overwrite. Their text is not lost: the backend
+// snapshots it into .history/ before writing.
+$conflictBarKeep.addEventListener('click', () => {
+  if (conflictTheirs && conflictTheirs.version) {
+    activeVersion = conflictTheirs.version; // rebase onto theirs, then overwrite
+  }
+  const mine = $editor.value;
+  hideConflictBar();
+  save(mine);
+});
+
+// Pull a remote change into the open editor when it is safe to do so:
+// only when the user has nothing unsaved and no save is in flight.
+// `seq` is the localWriteSeq captured when the list was requested — if a local
+// write landed since, this payload predates it and must be discarded.
+function syncActiveNoteFrom(list, seq) {
+  if (seq !== localWriteSeq) return;                 // stale snapshot
+  if (!activeNoteId || isNew) return;
+  if (pendingContent !== null || isSaving) return;   // local edits win; never clobber
+  if ($conflictBar.style.display === 'flex') return; // a decision is already pending
+  const fresh = list.find(n => n.id === activeNoteId);
+  if (!fresh || !fresh.version) return;
+  activeExpiresAt = fresh.expires_at;
+  updateEphemeralBadge();
+  if (fresh.version === activeVersion) return;       // unchanged
+  if (fresh.content === $editor.value) {             // same text, just rebase
+    activeVersion = fresh.version;
+    return;
+  }
+  // A debounced autosave may still be armed from keystrokes that were already
+  // saved; it would fire with the pre-swap text and overwrite what we just took.
+  clearTimeout(saveTimer);
+  // Preserve the user's place — setting .value alone jumps the caret to the end
+  const hadFocus = editorHasFocus();
+  const selStart = $editor.selectionStart;
+  const selEnd = $editor.selectionEnd;
+  const scrollTop = $editor.scrollTop;
+  $editor.value = fresh.content;
+  if (hadFocus) {
+    const max = fresh.content.length;
+    $editor.setSelectionRange(Math.min(selStart, max), Math.min(selEnd, max));
+    $editor.scrollTop = scrollTop;
+  }
+  activeVersion = fresh.version;
+  noteHadContent = !!fresh.content.trim();
+  if (isPreviewMode) setPreviewMode(true); // re-render preview with new content
+}
+
+// === SECTION: WIKI LINKS ===
+function findNoteByWikiName(name) {
+  const target = name.trim().replace(/\.md$/i, '').toLowerCase();
+  return notes.find(n => n.id.toLowerCase() === target);
+}
+
+marked.use({
+  extensions: [{
+    name: 'wikilink',
+    level: 'inline',
+    start(src) { return src.indexOf('[['); },
+    tokenizer(src) {
+      const m = /^\[\[([^\[\]\n]+)\]\]/.exec(src);
+      if (m) return { type: 'wikilink', raw: m[0], target: m[1].trim() };
+    },
+    renderer(token) {
+      const exists = !!findNoteByWikiName(token.target);
+      const cls = exists ? 'wiki-link' : 'wiki-link wiki-link-missing';
+      const name = escapeHtml(token.target).replace(/"/g, '&quot;');
+      return `<a href="#" class="${cls}" data-wiki="${name}">${escapeHtml(token.target)}</a>`;
+    },
+  }],
+});
+
+$preview.addEventListener('click', e => {
+  const link = e.target.closest('a[data-wiki]');
+  if (!link) return;
+  e.preventDefault();
+  const note = findNoteByWikiName(link.dataset.wiki);
+  if (note) {
+    openNote(note.id);
+    setPreviewMode(true); // keep browsing in preview when following links
+    if (isMobile) hideMobileList();
+  }
+});
+
+// === SECTION: NOTE NAVIGATION HISTORY ===
+// Every opened note gets a hash URL (#note-id) pushed to browser history, so
+// the browser/phone back button steps back through visited notes instead of
+// leaving the app. navPos tracks our depth so the visible ← button only acts
+// when there is an in-app entry to return to.
+const $noteBackBtn = document.getElementById('filename-back-btn');
+let navPos = 0;
+let navHandlingPop = false;
+
+function updateBackBtn() {
+  $noteBackBtn.style.visibility = navPos > 0 ? 'visible' : 'hidden';
+}
+
+function pushNoteHash(id) {
+  if (navHandlingPop) return;
+  const target = '#' + encodeURIComponent(id);
+  if (location.hash === target) {
+    history.replaceState({ nav: navPos }, '', target);
+    return;
+  }
+  if (!location.hash) {
+    history.replaceState({ nav: navPos }, '', target);
+  } else {
+    navPos++;
+    history.pushState({ nav: navPos }, '', target);
+  }
+  updateBackBtn();
+}
+
+window.addEventListener('popstate', e => {
+  navPos = (e.state && typeof e.state.nav === 'number') ? e.state.nav : 0;
+  updateBackBtn();
+  const id = decodeURIComponent(location.hash.slice(1));
+  navHandlingPop = true;
+  try {
+    if (id && notes.find(n => n.id === id)) {
+      openNote(id);
+      if (isMobile) hideMobileList();
+    } else if (notes.find(n => n.id === 'home')) {
+      // Renamed/deleted note in history — land on the start page instead
+      openNote('home');
+    }
+  } finally {
+    navHandlingPop = false;
+  }
+});
+
+$noteBackBtn.addEventListener('click', () => { if (navPos > 0) history.back(); });
+
+// === SECTION: EDITOR AUTOCOMPLETE (wiki links + tags) ===
+// Typing "[[" opens a dropdown that filters note names; typing "#" plus at
+// least one character suggests existing tags (the one-character minimum keeps
+// it from firing on markdown headings). Arrows navigate, Enter/Tab inserts,
+// Escape closes.
+const $wlSuggest = document.getElementById('wikilink-suggest');
+let wlItems = [];
+let wlSelectedIdx = 0;
+let wlMode = 'wiki';
+
+function allTags() {
+  return [...new Set(notes.flatMap(n => n.tags || []))].sort();
+}
+
+function wlActiveQuery() {
+  const pos = $editor.selectionStart;
+  const before = $editor.value.slice(0, pos);
+  let m = /\[\[([^\[\]\n]*)$/.exec(before);
+  if (m) return { mode: 'wiki', query: m[1], start: pos - m[1].length };
+  m = /(?:^|\s)#([\w\-åäöÅÄÖ]+)$/.exec(before);
+  if (m) return { mode: 'tag', query: m[1], start: pos - m[1].length };
+  return null;
+}
+
+function wlCaretCoords() {
+  if (liveShown) {
+    const c = liveView.coordsAtPos(liveView.state.selection.main.head);
+    const r = $editor.parentElement.getBoundingClientRect();
+    return c ? { top: c.top - r.top, left: c.left - r.left } : { top: 0, left: 0 };
+  }
+  // Mirror the textarea content up to the caret in a hidden div to find the
+  // caret's pixel position — textareas expose no caret coordinates natively.
+  const div = document.createElement('div');
+  const style = getComputedStyle($editor);
+  for (const prop of ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight',
+    'letterSpacing', 'padding', 'borderWidth', 'boxSizing', 'width']) {
+    div.style[prop] = style[prop];
+  }
+  div.style.position = 'absolute';
+  div.style.visibility = 'hidden';
+  div.style.whiteSpace = 'pre-wrap';
+  div.style.wordWrap = 'break-word';
+  div.textContent = $editor.value.slice(0, $editor.selectionStart);
+  const marker = document.createElement('span');
+  marker.textContent = '​';
+  div.appendChild(marker);
+  $editor.parentElement.appendChild(div);
+  const pos = {
+    top: marker.offsetTop - $editor.scrollTop,
+    left: marker.offsetLeft - $editor.scrollLeft,
+  };
+  div.remove();
+  return pos;
+}
+
+function wlClose() {
+  $wlSuggest.style.display = 'none';
+}
+
+function wlRender(query) {
+  const lq = query.toLowerCase();
+  const source = wlMode === 'tag' ? allTags() : notes.map(n => n.id);
+  wlItems = source.filter(s => s.toLowerCase().includes(lq)).slice(0, 8);
+  if (!wlItems.length) { wlClose(); return; }
+  wlSelectedIdx = Math.min(wlSelectedIdx, wlItems.length - 1);
+  $wlSuggest.innerHTML = '';
+  wlItems.forEach((s, i) => {
+    const item = document.createElement('div');
+    item.className = 'wikilink-suggest-item' + (i === wlSelectedIdx ? ' selected' : '');
+    const label = wlMode === 'tag' ? '#' + s : s;
+    setHighlighted(item, label, lq, wlMode === 'tag' ? 1 : 0);
+    // mousedown, not click — keeps focus in the textarea
+    item.addEventListener('mousedown', e => { e.preventDefault(); wlInsert(s); });
+    $wlSuggest.appendChild(item);
+  });
+  const c = wlCaretCoords();
+  const lineH = parseFloat(getComputedStyle($editor).lineHeight) || 20;
+  $wlSuggest.style.left = Math.max(0, Math.min(c.left, $editor.parentElement.clientWidth - 240)) + 'px';
+  $wlSuggest.style.top = (c.top + lineH + 4) + 'px';
+  $wlSuggest.style.display = 'block';
+}
+
+function wlInsert(text) {
+  const q = wlActiveQuery();
+  if (!q) { wlClose(); return; }
+  const pos = $editor.selectionStart;
+  const rest = $editor.value.slice(pos);
+  let inserted, caret;
+  if (q.mode === 'wiki') {
+    const closing = rest.startsWith(']]') ? '' : ']]';
+    inserted = text + closing;
+    caret = q.start + text.length + 2;
+  } else {
+    inserted = text;
+    caret = q.start + text.length;
+  }
+  $editor.value = $editor.value.slice(0, q.start) + inserted + rest;
+  $editor.selectionStart = $editor.selectionEnd = caret;
+  wlClose();
+  $editor.focus();
+  $editor.dispatchEvent(new Event('input'));
+}
+
+$editor.addEventListener('input', () => {
+  const q = wlActiveQuery();
+  if (q) { wlMode = q.mode; wlSelectedIdx = 0; wlRender(q.query); } else wlClose();
+});
+$editor.addEventListener('blur', () => setTimeout(wlClose, 150));
+$editor.addEventListener('scroll', wlClose);
+
+// Capture phase on document — must run before the editor's own Tab handler
+// and the global shortcut handlers
+document.addEventListener('keydown', e => {
+  if (!editorHasFocus() || $wlSuggest.style.display !== 'block') return;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault(); e.stopImmediatePropagation();
+    wlSelectedIdx = Math.min(wlSelectedIdx + 1, wlItems.length - 1);
+    wlRender(wlActiveQuery()?.query ?? '');
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault(); e.stopImmediatePropagation();
+    wlSelectedIdx = Math.max(wlSelectedIdx - 1, 0);
+    wlRender(wlActiveQuery()?.query ?? '');
+  } else if (e.key === 'Enter' || e.key === 'Tab') {
+    e.preventDefault(); e.stopImmediatePropagation();
+    const sel = wlItems[wlSelectedIdx];
+    if (sel) wlInsert(sel);
+  } else if (e.key === 'Escape') {
+    e.preventDefault(); e.stopImmediatePropagation();
+    wlClose();
+  }
+}, true);
+
+// Double-click (desktop) / double-tap (mobile) on the rendered text switches
+// to editing. Links are exempt — they navigate.
+function previewToEdit(e) {
+  if (e.target.closest('a')) return;
+  setPreviewMode(false);
+}
+$preview.addEventListener('dblclick', previewToEdit);
+let lastPreviewTap = 0;
+$preview.addEventListener('touchend', e => {
+  const now = Date.now();
+  if (now - lastPreviewTap < 350) previewToEdit(e);
+  lastPreviewTap = now;
+});
+
+// === SECTION: PREVIEW ===
+function setPreviewMode(on, focus = false) {
+  isPreviewMode = on;
+  if (LIVE) return setLiveMode(on, focus);
+  if (on) {
+    const html = DOMPurify.sanitize(marked.parse($editor.value || ''));
+    $preview.innerHTML = html;
+    enableTaskCheckboxes();
+    renderBacklinks();
+    $editor.style.display = 'none';
+    $preview.style.display = 'block';
+    $btnPreview.classList.add('active');
+    $btnPreview.innerHTML = icon('pencil');
+    $btnPreview.title = 'Edit (Ctrl+M)';
+  } else {
+    $preview.style.display = 'none';
+    $editor.style.display = '';
+    $btnPreview.classList.remove('active');
+    $btnPreview.innerHTML = icon('eye');
+    $btnPreview.title = 'Preview (Ctrl+M)';
+    if (document.activeElement !== $editor) $editor.focus();
+  }
+}
+
+function togglePreview() {
+  if (!activeNoteId && !isNew) return;
+  setPreviewMode(!isPreviewMode, true);
+}
+
+// === SECTION: BACKLINKS ===
+// A muted footer line in the preview listing notes that [[link]] here.
+// Deliberately unobtrusive: only shown in preview mode and only when at
+// least one other note links to this one.
+function renderBacklinks() {
+  if (!activeNoteId) return;
+  const re = new RegExp(
+    '\\[\\[\\s*' + activeNoteId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:\\.md)?\\s*\\]\\]', 'i');
+  const sources = notes.filter(n => n.id !== activeNoteId && re.test(n.content));
+  if (!sources.length) return;
+  const div = document.createElement('div');
+  div.id = 'backlinks';
+  div.innerHTML = 'Linked from: ' + sources.map(n =>
+    `<a href="#" class="wiki-link" data-wiki="${escapeHtml(n.id).replace(/"/g, '&quot;')}">${escapeHtml(n.id)}</a>`
+  ).join(' · ');
+  $preview.appendChild(div);
+}
+
+// === SECTION: TASK CHECKBOXES IN PREVIEW ===
+// marked renders "- [ ]" as disabled checkboxes; make them live so todos can
+// be ticked straight from the rendered view. The nth rendered checkbox maps
+// to the nth task-list line in the source (fenced code blocks skipped).
+const TASK_LINE = /^((?:\s*>)*\s*(?:[-*+]|\d+[.)])\s+\[)([ xX])(\])/;
+
+function enableTaskCheckboxes() {
+  $preview.querySelectorAll('li > input[type="checkbox"]').forEach((box, i) => {
+    box.disabled = false;
+    box.addEventListener('change', () => toggleTaskLine(i, box.checked));
+  });
+}
+
+function toggleTaskLine(index, checked) {
+  const lines = $editor.value.split('\n');
+  let inFence = false, n = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\s*(```|~~~)/.test(lines[i])) { inFence = !inFence; continue; }
+    if (inFence) continue;
+    if (!TASK_LINE.test(lines[i])) continue;
+    n++;
+    if (n !== index) continue;
+    lines[i] = lines[i].replace(TASK_LINE, '$1' + (checked ? 'x' : ' ') + '$3');
+    $editor.value = lines.join('\n');
+    pendingContent = $editor.value;
+    putDraft(pendingContent);
+    showUnsaved();
+    noteHadContent = true;
+    clearTimeout(saveTimer);
+    if (isOnline) saveTimer = setTimeout(() => save($editor.value), 600);
+    return;
+  }
+}
+
+$btnPreview.addEventListener('click', togglePreview);
+
+// === SECTION: RENAME ===
+function startRename(fresh = false) {
+  isRenaming = true;
+  const current = $filenameDisplay.textContent;
+  $filenameInput.value = fresh ? '' : current.replace(/\.md$/, '');
+  $filenameInput.placeholder = fresh ? 'Name – Enter to write, empty = date' : '';
+  $filenameDisplay.style.display = 'none';
+  $filenameEditBtn.style.display = 'none';
+  $filenameInput.style.display = 'block';
+  $filenameInput.focus();
+  $filenameInput.select();
+}
+
+function cancelRename() {
+  isRenaming = false;
+  $filenameInput.style.display = 'none';
+  $filenameDisplay.style.display = '';
+  $filenameEditBtn.style.display = '';
+  $filenameError.style.display = 'none';
+}
+
+async function doRename() {
+  let newName = $filenameInput.value.trim();
+  if (!newName) { cancelRename(); if (isNew) $editor.focus(); return; }
+  if (!newName.endsWith('.md')) newName += '.md';
+
+  const currentFilename = $filenameDisplay.textContent;
+  if (newName === currentFilename) { cancelRename(); if (isNew) $editor.focus(); return; }
+
+  $filenameInput.disabled = true;
+  // Block the editor's debounced autosave from firing its own create/save
+  // request while this one is in flight (see blur handler below).
+  isSaving = true;
+
+  try {
+    const id = isNew ? null : activeNoteId;
+    if (!id) {
+      // For new notes: naming the note creates it right away, even with empty content
+      let res;
+      try {
+        const renameBody = { content: $editor.value || '', filename: newName };
+        if (ephemeralArmed) renameBody.ttl_hours = 48;
+        res = await apiFetch('/api/notes', {
+          method: 'POST',
+          body: renameBody,
+        });
+      } catch {
+        // Offline/network error — keep the name and create on first autosave instead
+        newNoteFilename = newName;
+        $filenameDisplay.textContent = newName;
+        cancelRename();
+        $editor.focus();
+        return;
+      }
+      if (res.ok) {
+        const created = await res.json();
+        activeNoteId = created.id;
+        activeVersion = created.version;
+        localWriteSeq++;
+        isNew = false;
+        newNoteFilename = null;
+        ephemeralArmed = false;
+        activeExpiresAt = created.expires_at;
+        noteHadContent = !!created.content.trim();
+        localStorage.setItem('hexnotes_lastNote', created.id);
+        moveDraft('', created.id, created.version);
+        pushNoteHash(created.id);
+        $filenameDisplay.textContent = created.filename;
+        updateEphemeralBadge();
+        cancelRename();
+        $editor.focus();
+        try {
+          notes = await fetchAllNotes();
+          renderNotesList();
+        } catch {
+          // The list is refetched on the next poll
+        }
+      } else if (res.status === 409) {
+        $filenameError.textContent = 'A note with that name already exists';
+        $filenameError.style.display = 'block';
+      } else {
+        $filenameError.textContent = 'Could not create note';
+        $filenameError.style.display = 'block';
+      }
+      return;
+    }
+    const res = await apiFetch(`/api/notes/${encodeURIComponent(id)}/rename`, {
+      method: 'POST',
+      body: { new_filename: newName },
+    });
+    if (res.ok) {
+      const updated = await res.json();
+      activeNoteId = updated.id;
+      activeExpiresAt = updated.expires_at;
+      localStorage.setItem('hexnotes_lastNote', updated.id);
+      history.replaceState(history.state, '', '#' + encodeURIComponent(updated.id));
+      $filenameDisplay.textContent = updated.filename;
+      updateEphemeralBadge();
+      cancelRename();
+      // Refresh list
+      try {
+        notes = await fetchAllNotes();
+        renderNotesList();
+      } catch {
+        // The list is refetched on the next poll
+      }
+    } else if (res.status === 409) {
+      $filenameError.textContent = 'A note with that name already exists';
+      $filenameError.style.display = 'block';
+    } else {
+      $filenameError.textContent = 'Could not rename';
+      $filenameError.style.display = 'block';
+    }
+  } catch {
+    $filenameError.textContent = 'Network error';
+    $filenameError.style.display = 'block';
+  } finally {
+    $filenameInput.disabled = false;
+    isSaving = false;
+  }
+}
+
+$filenameDisplay.addEventListener('click', startRename);
+$filenameEditBtn.addEventListener('click', startRename);
+$filenameDeleteBtn.addEventListener('click', confirmDelete);
+$filenamePinBtn.addEventListener('click', async () => {
+  if (!activeNoteId) return;
+  const res = await apiFetch(`/api/notes/${encodeURIComponent(activeNoteId)}/pin`, { method: 'POST' });
+  if (res && res.ok) {
+    const updated = await res.json();
+    const idx = notes.findIndex(n => n.id === activeNoteId);
+    if (idx !== -1) notes[idx] = updated;
+    $filenamePinBtn.title = updated.pinned ? 'Unpin' : 'Pin to top';
+    $filenamePinBtn.classList.toggle('active', updated.pinned);
+    await loadNotes();
+  }
+});
+$filenameInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter' || ((e.key === 'Tab' || e.key === 'ArrowDown') && isNew)) {
+    e.preventDefault(); doRename();
+  }
+  if (e.key === 'Escape') { cancelRename(); if (isNew) $editor.focus(); }
+});
+$filenameInput.addEventListener('blur', () => {
+  // Small delay to allow a click on e.g. the escape/cancel path to land first.
+  // Commits via doRename() rather than discarding — clicking into the editor
+  // to start writing (without pressing Enter first) must keep the typed
+  // title; doRename() itself no-ops safely if the field is empty or
+  // unchanged, so this is a strict superset of the old cancel-only behavior.
+  setTimeout(() => { if (isRenaming) doRename(); }, 150);
+});
+
+// === SECTION: DELETE ===
+let pendingDeleteId = null;
+
+function confirmDelete() {
+  if (!activeNoteId) return;
+  pendingDeleteId = activeNoteId;
+  $confirmOverlay.classList.add('active');
+}
+
+$btnConfirmYes.addEventListener('click', async () => {
+  $confirmOverlay.classList.remove('active');
+  if (!pendingDeleteId) return;
+  try {
+    await apiFetch(`/api/notes/${encodeURIComponent(pendingDeleteId)}`, { method: 'DELETE' });
+    dropDraft(pendingDeleteId);
+    notes = notes.filter(n => n.id !== pendingDeleteId);
+    if (activeNoteId === pendingDeleteId) {
+      activeNoteId = null;
+      if (notes.length > 0) openNote(notes[0].id);
+      else showEmpty();
+    }
+    renderNotesList();
+  } catch {}
+  pendingDeleteId = null;
+});
+
+$btnConfirmNo.addEventListener('click', () => {
+  $confirmOverlay.classList.remove('active');
+  pendingDeleteId = null;
+});
+
+// === SECTION: VERSION HISTORY ===
+const $historyBtn = document.getElementById('filename-history-btn');
+const $historyOverlay = document.getElementById('history-overlay');
+const $historyTitle = document.getElementById('history-title');
+const $historyBack = document.getElementById('history-back');
+const $historyClose = document.getElementById('history-close');
+const $historyList = document.getElementById('history-list');
+const $historyView = document.getElementById('history-view');
+const $historyContent = document.getElementById('history-content');
+const $historyRestore = document.getElementById('history-restore');
+let historyVersionContent = null;
+
+function formatVersionDate(timestamp) {
+  // Timestamps from the backend are UTC without zone suffix
+  return new Date(timestamp + 'Z').toLocaleString('en-GB');
+}
+
+function showHistoryList() {
+  historyVersionContent = null;
+  $historyView.style.display = 'none';
+  $historyList.style.display = 'block';
+  $historyBack.style.display = 'none';
+  $historyTitle.textContent = 'Version history';
+}
+
+async function openHistory() {
+  if (!activeNoteId) return;
+  try {
+    const res = await apiFetch(`/api/notes/${encodeURIComponent(activeNoteId)}/history`);
+    if (!res.ok) return;
+    const versions = await res.json();
+    $historyList.innerHTML = '';
+    if (versions.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'history-empty';
+      empty.textContent = 'No earlier versions';
+      $historyList.appendChild(empty);
+    }
+    for (const v of versions) {
+      const item = document.createElement('div');
+      item.className = 'history-item';
+      const dateEl = document.createElement('div');
+      dateEl.className = 'history-item-date';
+      dateEl.textContent = formatVersionDate(v.timestamp);
+      const previewEl = document.createElement('div');
+      previewEl.className = 'history-item-preview';
+      previewEl.textContent = v.preview;
+      item.appendChild(dateEl);
+      item.appendChild(previewEl);
+      item.addEventListener('click', () => openHistoryVersion(v));
+      $historyList.appendChild(item);
+    }
+    showHistoryList();
+    $historyOverlay.classList.add('active');
+  } catch {}
+}
+
+async function openHistoryVersion(v) {
+  try {
+    const res = await apiFetch(`/api/notes/${encodeURIComponent(activeNoteId)}/history/${encodeURIComponent(v.version)}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    historyVersionContent = data.content;
+    $historyContent.textContent = data.content;
+    $historyTitle.textContent = formatVersionDate(data.timestamp);
+    $historyList.style.display = 'none';
+    $historyView.style.display = 'flex';
+    $historyBack.style.display = 'block';
+  } catch {}
+}
+
+function closeHistory() {
+  $historyOverlay.classList.remove('active');
+  historyVersionContent = null;
+}
+
+$historyBtn.addEventListener('click', openHistory);
+$historyBack.addEventListener('click', showHistoryList);
+$historyClose.addEventListener('click', closeHistory);
+$historyOverlay.addEventListener('click', e => { if (e.target === $historyOverlay) closeHistory(); });
+
+$historyRestore.addEventListener('click', async () => {
+  if (!activeNoteId || historyVersionContent === null) return;
+  try {
+    const res = await apiFetch(`/api/notes/${encodeURIComponent(activeNoteId)}`, {
+      method: 'PATCH',
+      body: { content: historyVersionContent },
+    });
+    if (res.ok) {
+      const updated = await res.json();
+      $editor.value = updated.content;
+      // Restore is a deliberate overwrite, so no base_version is sent — but we
+      // must rebase onto the result or the next autosave conflicts with itself.
+      activeVersion = updated.version;
+      localWriteSeq++;
+      pendingContent = null;
+      if (isPreviewMode) setPreviewMode(true);
+      closeHistory();
+      showSaved();
+      loadNotes();
+    }
+  } catch {}
+});
+
+// === SECTION: TRASH ===
+const $btnTrash = document.getElementById('btn-trash');
+const $trashOverlay = document.getElementById('trash-overlay');
+const $trashTitle = document.getElementById('trash-title');
+const $trashBack = document.getElementById('trash-back');
+const $trashClose = document.getElementById('trash-close');
+const $trashList = document.getElementById('trash-list');
+const $trashView = document.getElementById('trash-view');
+const $trashContent = document.getElementById('trash-content');
+const $trashRestore = document.getElementById('trash-restore');
+const $trashPurge = document.getElementById('trash-purge');
+const $trashListActions = document.getElementById('trash-list-actions');
+const $trashEmpty = document.getElementById('trash-empty');
+let trashSelectedName = null;
+let trashHasEntries = false;
+let purgeArmed = false;
+let emptyArmed = false;
+
+function disarmPurge() {
+  purgeArmed = false;
+  $trashPurge.classList.remove('armed');
+  $trashPurge.textContent = 'Delete forever';
+}
+
+function disarmEmpty() {
+  emptyArmed = false;
+  $trashEmpty.classList.remove('armed');
+  $trashEmpty.textContent = 'Empty trash';
+}
+
+function showTrashList() {
+  trashSelectedName = null;
+  disarmPurge();
+  disarmEmpty();
+  $trashView.style.display = 'none';
+  $trashList.style.display = 'block';
+  $trashListActions.style.display = trashHasEntries ? 'flex' : 'none';
+  $trashBack.style.display = 'none';
+  $trashTitle.textContent = 'Trash';
+}
+
+async function openTrash() {
+  try {
+    const res = await apiFetch('/api/trash');
+    if (!res.ok) return;
+    const entries = await res.json();
+    trashHasEntries = entries.length > 0;
+    $trashList.innerHTML = '';
+    if (entries.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'history-empty';
+      empty.textContent = 'Trash is empty';
+      $trashList.appendChild(empty);
+    }
+    for (const t of entries) {
+      const item = document.createElement('div');
+      item.className = 'history-item';
+      const nameEl = document.createElement('div');
+      nameEl.className = 'trash-item-original';
+      nameEl.textContent = t.original_filename;
+      const dateEl = document.createElement('div');
+      dateEl.className = 'history-item-preview';
+      dateEl.textContent = formatVersionDate(t.deleted_at) + (t.preview ? ' · ' + t.preview : '');
+      item.appendChild(nameEl);
+      item.appendChild(dateEl);
+      item.addEventListener('click', () => openTrashEntry(t));
+      $trashList.appendChild(item);
+    }
+    showTrashList();
+    $trashOverlay.classList.add('active');
+  } catch {}
+}
+
+async function openTrashEntry(t) {
+  try {
+    const res = await apiFetch(`/api/trash/${encodeURIComponent(t.name)}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    trashSelectedName = data.name;
+    disarmPurge();
+    $trashContent.textContent = data.content || '(empty note)';
+    $trashTitle.textContent = data.original_filename + ' · ' + formatVersionDate(data.deleted_at);
+    $trashList.style.display = 'none';
+    $trashListActions.style.display = 'none';
+    $trashView.style.display = 'flex';
+    $trashBack.style.display = 'block';
+  } catch {}
+}
+
+function closeTrash() {
+  $trashOverlay.classList.remove('active');
+  trashSelectedName = null;
+  disarmPurge();
+  disarmEmpty();
+}
+
+$btnTrash.addEventListener('click', openTrash);
+$trashBack.addEventListener('click', () => openTrash());
+$trashClose.addEventListener('click', closeTrash);
+$trashOverlay.addEventListener('click', e => { if (e.target === $trashOverlay) closeTrash(); });
+
+$trashRestore.addEventListener('click', async () => {
+  if (!trashSelectedName) return;
+  try {
+    const res = await apiFetch(`/api/trash/${encodeURIComponent(trashSelectedName)}/restore`, { method: 'POST' });
+    if (res.ok) {
+      const restored = await res.json();
+      closeTrash();
+      await loadNotes();
+      openNote(restored.id);
+      if (isMobile) hideMobileList();
+    }
+  } catch {}
+});
+
+// Destructive actions require two clicks — the first click arms the button
+$trashPurge.addEventListener('click', async () => {
+  if (!trashSelectedName) return;
+  if (!purgeArmed) {
+    purgeArmed = true;
+    $trashPurge.classList.add('armed');
+    $trashPurge.textContent = 'Sure? Click again';
+    return;
+  }
+  try {
+    const res = await apiFetch(`/api/trash/${encodeURIComponent(trashSelectedName)}`, { method: 'DELETE' });
+    if (res.ok) openTrash(); // back to the refreshed list
+  } catch {}
+});
+
+$trashEmpty.addEventListener('click', async () => {
+  if (!emptyArmed) {
+    emptyArmed = true;
+    $trashEmpty.classList.add('armed');
+    $trashEmpty.textContent = 'Delete all forever? Click again';
+    return;
+  }
+  try {
+    const res = await apiFetch('/api/trash', { method: 'DELETE' });
+    if (res.ok) openTrash();
+  } catch {}
+});
+
+// === SECTION: SIDEBAR ===
+function applySidebarState() {
+  if (isMobile) return;
+  if (sidebarCollapsed) {
+    $sidebar.classList.add('collapsed');
+  } else {
+    $sidebar.classList.remove('collapsed');
+  }
+}
+
+function toggleSidebar() {
+  sidebarCollapsed = !sidebarCollapsed;
+  localStorage.setItem('hexnotes_sidebar', sidebarCollapsed ? 'collapsed' : 'expanded');
+  applySidebarState();
+}
+
+$btnMenu.addEventListener('click', toggleSidebar);
+
+// === SECTION: HOME ===
+// Clicking the HexNotes title opens the home note (start page) in preview
+document.getElementById('topbar-title').addEventListener('click', () => {
+  const home = notes.find(n => n.id === 'home');
+  if (!home) return;
+  openNote(home.id);
+  setPreviewMode(true);
+  if (isMobile) hideMobileList();
+});
+
+// === SECTION: MOBILE NAV ===
+function showMobileList() {
+  mobileShowList = true;
+  $sidebar.classList.add('mobile-visible');
+  $editorArea.style.display = 'none';
+  $fab.style.display = 'flex';
+}
+
+function hideMobileList() {
+  mobileShowList = false;
+  $sidebar.classList.remove('mobile-visible');
+  $editorArea.style.display = 'flex';
+}
+
+$btnBack.addEventListener('click', () => {
+  if (mobileShowList) {
+    hideMobileList();
+  } else {
+    showMobileList();
+  }
+});
+
+// === SECTION: SEARCH ===
+const $btnSearchClear = document.getElementById('btn-search-clear');
+let searchTimer = null;
+$searchInput.addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  $btnSearchClear.style.display = $searchInput.value ? 'block' : 'none';
+  searchTimer = setTimeout(() => loadNotes(), 300);
+});
+$btnSearchClear.addEventListener('click', () => {
+  $searchInput.value = '';
+  $btnSearchClear.style.display = 'none';
+  $searchInput.focus();
+  loadNotes();
+});
+
+// === SECTION: FORMATTING KEYS, TAB HANDLING + LIST AUTO-CONTINUE ===
+$editor.addEventListener('keydown', editorKeydown);
+function editorKeydown(e) {
+  const fmt = formatForKey(e);
+  if (fmt) {
+    e.preventDefault();
+    applyEditorEdit(fmt($editor.value, $editor.selectionStart, $editor.selectionEnd));
+    return;
+  }
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    const start = $editor.selectionStart;
+    const end = $editor.selectionEnd;
+    $editor.value = $editor.value.substring(0, start) + '  ' + $editor.value.substring(end);
+    $editor.selectionStart = $editor.selectionEnd = start + 2;
+    $editor.dispatchEvent(new Event('input'));
+    return;
+  }
+  // Enter on a checkbox/bullet line continues the list automatically;
+  // Enter on an empty item ends the list (removes the marker).
+  if (e.key === 'Enter' && !e.shiftKey && $editor.selectionStart === $editor.selectionEnd) {
+    const val = $editor.value, pos = $editor.selectionStart;
+    const lineStart = val.lastIndexOf('\n', pos - 1) + 1;
+    const line = val.slice(lineStart, pos);
+    const cb = line.match(/^(\s*)[-*+]\s+\[[ xX]\]\s*(.*)$/);
+    const bul = line.match(/^(\s*)([-*+])\s+(.*)$/);
+    const empty = () => {
+      e.preventDefault();
+      $editor.value = val.slice(0, lineStart) + val.slice(pos);
+      $editor.selectionStart = $editor.selectionEnd = lineStart;
+      $editor.dispatchEvent(new Event('input'));
+    };
+    const cont = (marker) => {
+      e.preventDefault();
+      const ins = '\n' + marker;
+      $editor.value = val.slice(0, pos) + ins + val.slice(pos);
+      $editor.selectionStart = $editor.selectionEnd = pos + ins.length;
+      $editor.dispatchEvent(new Event('input'));
+    };
+    if (cb) { cb[2].trim() === '' ? empty() : cont(cb[1] + '- [ ] '); }
+    else if (bul) { bul[3].trim() === '' ? empty() : cont(bul[1] + bul[2] + ' '); }
+  }
+}
+
+// Button: turn the current line (or every selected line) into a checkbox.
+function insertChecklist() {
+  if (isPreviewMode && !LIVE) setPreviewMode(false);
+  const val = $editor.value;
+  const s = $editor.selectionStart, en = $editor.selectionEnd;
+  const lineStart = val.lastIndexOf('\n', s - 1) + 1;
+  let lineEnd = val.indexOf('\n', en); if (lineEnd === -1) lineEnd = val.length;
+  const newBlock = val.slice(lineStart, lineEnd).split('\n').map((l) => {
+    const m = l.match(/^(\s*)(.*)$/), indent = m[1], rest = m[2];
+    if (/^[-*+]\s+\[[ xX]\]/.test(rest)) return l;       // redan checkruta
+    return indent + '- [ ] ' + rest;
+  }).join('\n');
+  $editor.value = val.slice(0, lineStart) + newBlock + val.slice(lineEnd);
+  const end = lineStart + newBlock.length;
+  $editor.focus();
+  $editor.selectionStart = $editor.selectionEnd = end;
+  $editor.dispatchEvent(new Event('input'));
+}
+document.getElementById('filename-checklist-btn').addEventListener('click', insertChecklist);
+
+// === SECTION: FORMATTING SHORTCUTS ===
+// Markdown formatting from the keyboard (Ctrl+B/I/E/K, Ctrl+Shift+X,
+// Ctrl+Shift+7, Ctrl+Enter). The md* transforms are pure functions of
+// (text, selectionStart, selectionEnd) that return { text, start, end };
+// applyEditorEdit writes only the changed span through
+// execCommand('insertText') so Ctrl+Z still undoes the formatting.
+
+const MD_WORD_CHAR = /[\p{L}\p{N}_]/u;
+// List, checkbox, numbered, heading and quote markers at the start of a line.
+// Wrapping a whole selected line skips them: "- item" → "- **item**".
+const MD_LINE_PREFIX = /^\s*(?:(?:[-*+]\s+\[[ xX]\]|[-*+]|\d+[.)]|#{1,6}|>)\s+)*/;
+const MD_CHECKBOX = /^(\s*[-*+]\s+\[)([ xX])(\])/;
+const MD_BULLET = /^(\s*)[-*+]\s+(?!\[[ xX]\])/;
+const MD_ANY_ITEM = /^(\s*)(?:[-*+]\s+\[[ xX]\]|[-*+]|\d+[.)])\s+/;
+
+function mdRunBefore(text, pos, ch) { let n = 0; while (pos - n > 0 && text[pos - n - 1] === ch) n++; return n; }
+function mdRunAfter(text, pos, ch) { let n = 0; while (pos + n < text.length && text[pos + n] === ch) n++; return n; }
+
+// Do marker runs of these lengths on each side wrap the span in `marker`?
+// '*' and '**' share a character: a run of 1 or 3 carries italics, 2 or 3 bold.
+function mdRunsWrap(left, right, marker) {
+  if (marker === '*') return left % 2 === 1 && right % 2 === 1;
+  return left >= marker.length && right >= marker.length;
+}
+
+// The word around pos; a hyphen or apostrophe counts when it sits inside one.
+function mdWordAt(text, pos) {
+  const isWord = (i) => i >= 0 && i < text.length && (MD_WORD_CHAR.test(text[i]) ||
+    ("-'’".includes(text[i]) && MD_WORD_CHAR.test(text[i - 1] || '') && MD_WORD_CHAR.test(text[i + 1] || '')));
+  let s = pos, e = pos;
+  while (isWord(s - 1)) s--;
+  while (isWord(e)) e++;
+  return [s, e];
+}
+
+// Trim a span to its content, then widen it over any `marker` characters
+// touching it on either side, whether they were selected or not ("**word**",
+// "**«word»**" and a line ending in "word**" all read the same). l and r are
+// the marker runs at each edge; wrapped says whether they carry `marker`.
+function mdSpan(text, s, e, marker) {
+  while (s < e && /\s/.test(text[s])) s++;
+  while (e > s && /\s/.test(text[e - 1])) e--;
+  const ch = marker[0];
+  s -= mdRunBefore(text, s, ch);
+  e += mdRunAfter(text, e, ch);
+  const l = mdRunAfter(text, s, ch), r = mdRunBefore(text, e, ch);
+  return { s, e, l, r, wrapped: l + r < e - s && mdRunsWrap(l, r, marker) };
+}
+
+// Edits are pure inserts { at, ins } or pure deletes { at, del }. stickRight
+// moves a position past text inserted exactly at it.
+function mdMapPos(edits, p, stickRight) {
+  let d = 0;
+  for (const ed of edits) {
+    if (ed.del ? ed.at + ed.del <= p : (stickRight ? ed.at <= p : ed.at < p)) d += (ed.ins || '').length - (ed.del || 0);
+  }
+  return p + d;
+}
+function mdApplyEdits(text, edits) {
+  for (const ed of [...edits].sort((a, b) => b.at - a.at)) {
+    text = text.slice(0, ed.at) + (ed.ins || '') + text.slice(ed.at + (ed.del || 0));
+  }
+  return text;
+}
+
+// Toggle `marker` (** * ~~ `) around the selection, one span per line since
+// Markdown emphasis cannot cross a line break. If every line is already
+// wrapped the markers come off; otherwise the unwrapped lines get them.
+// The selection ends up on the content, so pressing again toggles back.
+function mdToggleWrap(text, start, end, marker) {
+  if (start === end) return mdToggleWrapCaret(text, start, marker);
+  const m = marker.length, spans = [];
+  let ls = text.lastIndexOf('\n', start - 1) + 1;
+  while (ls <= end) {
+    let le = text.indexOf('\n', ls); if (le === -1) le = text.length;
+    const content = ls + text.slice(ls, le).match(MD_LINE_PREFIX)[0].length;
+    const segS = Math.max(start, ls), segE = Math.min(end, le);
+    const sp = mdSpan(text, segS < content ? Math.min(content, segE) : segS, segE, marker);
+    if (sp.s < sp.e) spans.push(sp);
+    ls = le + 1;
+  }
+  if (!spans.length) return null;
+  const unwrap = spans.every(sp => sp.wrapped);
+  const edits = [];
+  spans.forEach((sp) => {
+    // Unwrapping takes the innermost markers, so "***x***" keeps the other one.
+    if (unwrap) edits.push({ at: sp.s + sp.l - m, del: m }, { at: sp.e - sp.r, del: m });
+    else if (!sp.wrapped) edits.push({ at: sp.s, ins: marker }, { at: sp.e, ins: marker });
+  });
+  // Select the content inside all the markers of the first and last line.
+  const first = spans[0], last = spans[spans.length - 1];
+  return {
+    text: mdApplyEdits(text, edits),
+    start: mdMapPos(edits, first.s + first.l, true),
+    end: mdMapPos(edits, last.e - last.r, false),
+  };
+}
+
+// No selection: inside a word, toggle the word and keep the caret where it
+// was; at the end of a wrapped word, step over the closing marker (so
+// Ctrl+B, type, Ctrl+B leaves bold); in an empty pair, remove the pair;
+// elsewhere insert an empty pair with the caret in the middle.
+function mdToggleWrapCaret(text, pos, marker) {
+  const ch = marker[0], m = marker.length;
+  const [ws, we] = mdWordAt(text, pos);
+  if (ws === we) {
+    if (text.slice(pos - m, pos) === marker && text.slice(pos, pos + m) === marker &&
+        mdRunsWrap(mdRunBefore(text, pos, ch), mdRunAfter(text, pos, ch), marker)) {
+      return { text: text.slice(0, pos - m) + text.slice(pos + m), start: pos - m, end: pos - m };
+    }
+    return { text: text.slice(0, pos) + marker + marker + text.slice(pos), start: pos + m, end: pos + m };
+  }
+  if (we === pos && text.slice(pos, pos + m) === marker &&
+      mdRunsWrap(mdRunBefore(text, ws, ch), mdRunAfter(text, pos, ch), marker)) {
+    return { text, start: pos + m, end: pos + m };
+  }
+  const r = mdToggleWrap(text, ws, we, marker);
+  const p = r.start + (pos - ws);
+  return { text: r.text, start: p, end: p };
+}
+
+// Ctrl+K: selected text → [text](url) with "url" selected to type or paste
+// over; a selected URL → [](URL) with the caret in the brackets.
+function mdLink(text, start, end) {
+  let s = start, e = end;
+  if (s === e) [s, e] = mdWordAt(text, s);
+  while (s < e && /\s/.test(text[s])) s++;
+  while (e > s && /\s/.test(text[e - 1])) e--;
+  const sel = text.slice(s, e), out = (ins, a, b) => ({ text: text.slice(0, s) + ins + text.slice(e), start: s + a, end: s + b });
+  if (/^(https?:\/\/|www\.)\S+$/i.test(sel)) return out('[](' + sel + ')', 1, 1);
+  if (sel) return out('[' + sel + '](url)', sel.length + 3, sel.length + 6);
+  return out('[](url)', 1, 1);
+}
+
+// Run fn over every line the selection touches (a selection ending right
+// after a newline leaves the next line alone). A caret moves with its line's
+// change; a selection ends up on the whole block.
+function mdMapLines(text, start, end, fn) {
+  const ls = text.lastIndexOf('\n', start - 1) + 1;
+  let le = (end > start && text[end - 1] === '\n') ? end - 1 : text.indexOf('\n', end);
+  if (le === -1 || le < ls) le = Math.max(ls, le === -1 ? text.length : le);
+  const oldLines = text.slice(ls, le).split('\n');
+  const newLines = fn(oldLines);
+  const block = newLines.join('\n');
+  const out = text.slice(0, ls) + block + text.slice(le);
+  if (start === end) {
+    const p = Math.max(ls, start + newLines[0].length - oldLines[0].length);
+    return { text: out, start: p, end: p };
+  }
+  return { text: out, start: ls, end: ls + block.length };
+}
+
+// Ctrl+Shift+7: bullet list on/off. All lines already plain bullets → remove
+// the markers; otherwise every non-blank line becomes one (a numbered item
+// is renumbered as a bullet, checkboxes are left as they are).
+function mdToggleBullets(text, start, end) {
+  return mdMapLines(text, start, end, (lines) => {
+    const items = lines.filter(l => l.trim());
+    if (items.length && items.every(l => MD_BULLET.test(l))) return lines.map(l => l.replace(MD_BULLET, '$1'));
+    return lines.map((l) => {
+      if (!l.trim() || MD_BULLET.test(l) || MD_CHECKBOX.test(l)) return l;
+      const m = l.match(MD_ANY_ITEM);
+      if (m) return m[1] + '- ' + l.slice(m[0].length);
+      const indent = l.match(/^\s*/)[0];
+      return indent + '- ' + l.slice(indent.length);
+    });
+  });
+}
+
+// Ctrl+Enter: tick or untick the checkboxes on the selected lines (all
+// ticked → untick all, otherwise tick all). Lines without a checkbox get
+// one, so Ctrl+Enter also starts a checklist.
+function mdToggleCheckbox(text, start, end) {
+  return mdMapLines(text, start, end, (lines) => {
+    const boxes = lines.filter(l => MD_CHECKBOX.test(l));
+    if (boxes.length) {
+      const mark = boxes.every(l => /x/i.test(l.match(MD_CHECKBOX)[2])) ? ' ' : 'x';
+      return lines.map(l => l.replace(MD_CHECKBOX, '$1' + mark + '$3'));
+    }
+    return lines.map((l) => {
+      if (!l.trim()) return l;
+      const m = l.match(MD_ANY_ITEM);
+      if (m) return m[1] + '- [ ] ' + l.slice(m[0].length);
+      const indent = l.match(/^\s*/)[0];
+      return indent + '- [ ] ' + l.slice(indent.length);
+    });
+  });
+}
+
+// Write a transform's result into the editor. Only the changed span is
+// replaced, through execCommand so the browser keeps it on the undo stack
+// (and fires 'input', which autosaves); assignment is the fallback.
+function applyEditorEdit(r) {
+  if (!r) return;
+  const old = $editor.value, nv = r.text;
+  if (liveShown) {
+    if (nv !== old) $editor.value = nv;  // diffed into one undoable change
+    $editor.dispatchEvent(new Event('input'));
+    $editor.setSelectionRange(r.start, r.end);
+    $editor.focus();
+    return;
+  }
+  if (nv !== old) {
+    let a = 0;
+    while (a < old.length && a < nv.length && old[a] === nv[a]) a++;
+    let b = 0;
+    while (b < old.length - a && b < nv.length - a && old[old.length - 1 - b] === nv[nv.length - 1 - b]) b++;
+    const ins = nv.slice(a, nv.length - b);
+    $editor.focus();
+    $editor.setSelectionRange(a, old.length - b);
+    let ok = false;
+    try { ok = ins ? document.execCommand('insertText', false, ins) : document.execCommand('delete'); } catch { ok = false; }
+    if (!ok || $editor.value !== nv) { $editor.value = nv; $editor.dispatchEvent(new Event('input')); }
+  }
+  $editor.setSelectionRange(r.start, r.end);
+}
+
+// The formatting key for a keydown, or null. AltGr arrives as Ctrl+Alt on
+// Windows, so Alt is excluded to keep AltGr characters typeable.
+function formatForKey(e) {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey) return null;
+  const k = e.key.toLowerCase();
+  if (!e.shiftKey) {
+    if (k === 'b') return (t, s, en) => mdToggleWrap(t, s, en, '**');
+    if (k === 'i') return (t, s, en) => mdToggleWrap(t, s, en, '*');
+    if (k === 'e') return (t, s, en) => mdToggleWrap(t, s, en, '`');
+    if (k === 'k') return mdLink;
+    if (e.key === 'Enter') return mdToggleCheckbox;
+  } else {
+    if (k === 'x') return (t, s, en) => mdToggleWrap(t, s, en, '~~');
+    if (e.code === 'Digit7') return mdToggleBullets;  // e.key is '/' on Swedish, '&' on US layouts
+  }
+  return null;
+}
+
+// === SECTION: KEYBOARD SHORTCUTS ===
+document.addEventListener('keydown', e => {
+  // Ctrl+N → new note
+  if (e.ctrlKey && e.key === 'n') { e.preventDefault(); createNewNote(); }
+  // Ctrl+F → in-document find bar
+  if (e.ctrlKey && e.key === 'f') { e.preventDefault(); openFindBar(); }
+  // Ctrl+P → command palette
+  if (e.ctrlKey && e.key === 'p') { e.preventDefault(); openPalette(); }
+  // Ctrl+Shift+B or Ctrl+\ → toggle sidebar; plain Ctrl+B too outside the
+  // editor (in the editor it is bold, handled by the editor's own listener)
+  if (e.ctrlKey && !e.altKey && (e.key === '\\' || (e.key.toLowerCase() === 'b' && (e.shiftKey || !isEditorTarget(e.target))))) {
+    e.preventDefault(); toggleSidebar();
+  }
+  // Ctrl+Delete → delete note
+  if (e.ctrlKey && e.key === 'Delete') { e.preventDefault(); confirmDelete(); }
+  // Ctrl+M → toggle markdown preview
+  if (e.ctrlKey && e.key === 'm') { e.preventDefault(); togglePreview(); }
+  // Ctrl+D → today's note
+  if (e.ctrlKey && e.key === 'd') { e.preventDefault(); openToday(); }
+  // Alt+← → back to previous note (guarded so it never leaves the app)
+  if (e.altKey && e.key === 'ArrowLeft') { if (navPos > 0) { e.preventDefault(); history.back(); } }
+  // Escape → close palette / find bar / clear search
+  if (e.key === 'Escape') {
+    if (document.getElementById('palette-overlay').classList.contains('active')) { closePalette(); return; }
+    if (document.getElementById('history-overlay').classList.contains('active')) { closeHistory(); return; }
+    if (document.getElementById('trash-overlay').classList.contains('active')) { closeTrash(); return; }
+    if (document.getElementById('find-bar').style.display === 'flex') { closeFindBar(); $editor.focus(); return; }
+    if (document.activeElement === $searchInput) {
+      $searchInput.value = '';
+      document.getElementById('btn-search-clear').style.display = 'none';
+      $searchInput.blur();
+      loadNotes();
+    }
+  }
+});
+
+// === SECTION: NEW NOTE BUTTONS ===
+$btnNew.addEventListener('click', () => createNewNote(false));
+$fab.addEventListener('click', () => createNewNote(false));
+
+// Langtryck pa FAB (mobilen): skapa ephemeral not (48h).
+// < 500ms = vanlig klick (vanlig not); >= 500ms = ephemeral.
+(function fabLongPress() {
+  const HOLD_MS = 500;
+  let timer = null;
+  let longFired = false;
+
+  function start(e) {
+    if (!('ontouchstart' in window)) return;  // touch screens only
+    longFired = false;
+    $fab.classList.add('holding');
+    document.getElementById('fab-hint').classList.add('visible');
+    timer = setTimeout(() => {
+      longFired = true;
+      $fab.classList.remove('holding');
+      document.getElementById('fab-hint').classList.remove('visible');
+      if (navigator.vibrate) navigator.vibrate(30);
+      createNewNote(true);
+    }, HOLD_MS);
+  }
+  function cancel(e) {
+    if (timer) { clearTimeout(timer); timer = null; }
+    $fab.classList.remove('holding');
+    document.getElementById('fab-hint').classList.remove('visible');
+    // touchstart+touchend triggar annars en syntetisk click - da hoppa over den
+    if (longFired) e.preventDefault();
+  }
+  $fab.addEventListener('touchstart', start, { passive: true });
+  $fab.addEventListener('touchend', cancel);
+  $fab.addEventListener('touchmove', cancel, { passive: true });
+  $fab.addEventListener('touchcancel', cancel);
+  // Block the synthetic click after a long press
+  $fab.addEventListener('click', e => {
+    if (longFired) { e.stopImmediatePropagation(); longFired = false; }
+  }, true);
+})();
+document.getElementById('btn-ephemeral').addEventListener('click', () => createNewNote(true));
+function updateEphemeralButton() {
+  const b = document.getElementById('btn-ephemeral');
+  if (b) b.classList.toggle('armed', isNew && ephemeralArmed);
+}
+
+// === SECTION: TODAY'S NOTE ===
+function openToday() {
+  const today = new Date().toLocaleDateString('sv-SE'); // YYYY-MM-DD, local time
+  const existing = notes.find(n => n.id === today);
+  if (existing) {
+    openNote(existing.id);
+    if (isMobile) hideMobileList();
+    return;
+  }
+  createNewNote();
+  newNoteFilename = today + '.md';
+  $filenameDisplay.textContent = newNoteFilename;
+  $editor.focus();
+}
+document.getElementById('btn-today').addEventListener('click', openToday);
+
+// === SECTION: OFFLINE HANDLING ===
+function goOffline() {
+  isOnline = false;
+  $offlineBar.style.display = 'flex';
+  clearTimeout(saveTimer);
+  if (isMobile) {
+    $fab.style.bottom = '58px';
+  }
+  if (!healthInterval) {
+    healthInterval = setInterval(checkHealth, 30000);
+  }
+}
+
+function goOnline() {
+  isOnline = true;
+  clearInterval(healthInterval);
+  healthInterval = null;
+  $offlineBar.style.display = 'none';
+  if (isMobile) {
+    $fab.style.bottom = '24px';
+  }
+  if (pendingContent !== null) {
+    save(pendingContent);
+  }
+  loadNotes();
+}
+
+async function checkHealth() {
+  try {
+    const r = await fetch('/health', { signal: AbortSignal.timeout(3000) });
+    if (r.ok) goOnline();
+  } catch {
+    // still offline
+  }
+}
+
+window.addEventListener('offline', () => goOffline());
+window.addEventListener('online', () => checkHealth());
+
+// Refresh notes when app comes back to foreground (iOS PWA / tab switch)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && isOnline) {
+    loadNotes();
+  }
+});
+
+// Refresh when browser window regains focus (desktop alt-tab)
+window.addEventListener('focus', () => {
+  if (isOnline) loadNotes();
+});
+
+// Background poll every 60s for always-open desktop windows (only when not typing)
+setInterval(() => {
+  if (isOnline && !isSaving && pendingContent === null) loadNotes();
+}, 60000);
+
+// Manual sync button (mobile)
+$btnSync.addEventListener('click', async () => {
+  $btnSync.classList.add('syncing');
+  await loadNotes();
+  setTimeout(() => $btnSync.classList.remove('syncing'), 600);
+});
+
+// === SECTION: RESIZE HANDLING ===
+window.addEventListener('resize', () => {
+  const wasMobile = isMobile;
+  isMobile = window.innerWidth <= 768;
+  if (wasMobile !== isMobile) {
+    if (isMobile) {
+      $sidebar.classList.remove('collapsed');
+      $fab.style.display = 'flex';
+    } else {
+      $sidebar.classList.remove('mobile-visible');
+      $editorArea.style.display = 'flex';
+      $fab.style.display = 'none';
+      applySidebarState();
+    }
+  }
+});
+
+// === SECTION: FIND BAR ===
+const $findBar = document.getElementById('find-bar');
+const $findInput = document.getElementById('find-input');
+const $findCounter = document.getElementById('find-counter');
+const $findPrev = document.getElementById('find-prev');
+const $findNext = document.getElementById('find-next');
+const $findClose = document.getElementById('find-close');
+let findMatches = [];
+let findIndex = 0;
+
+function openFindBar() {
+  if (!activeNoteId && !isNew) return;
+  $findBar.style.display = 'flex';
+  $findInput.focus();
+  $findInput.select();
+  if ($findInput.value) runFind($findInput.value);
+}
+
+function closeFindBar() {
+  $findBar.style.display = 'none';
+  findMatches = [];
+  findIndex = 0;
+  $findCounter.textContent = '─';
+}
+
+function runFind(q, keepFocus = false) {
+  findMatches = [];
+  findIndex = 0;
+  if (!q) { $findCounter.textContent = '─'; return; }
+  const text = $editor.value;
+  const lq = q.toLowerCase();
+  let pos = 0;
+  while (pos < text.length) {
+    const idx = text.toLowerCase().indexOf(lq, pos);
+    if (idx === -1) break;
+    findMatches.push(idx);
+    pos = idx + 1;
+  }
+  $findCounter.textContent = findMatches.length ? `1 / ${findMatches.length}` : '0 / 0';
+  if (findMatches.length) goToFindMatch(0, keepFocus);
+}
+
+function goToFindMatch(idx, keepFocus = false) {
+  if (!findMatches.length) return;
+  findIndex = (idx + findMatches.length) % findMatches.length;
+  const pos = findMatches[findIndex];
+  const len = $findInput.value.length;
+  $editor.setSelectionRange(pos, pos + len);
+  const lines = $editor.value.substring(0, pos).split('\n').length;
+  $editor.scrollTop = Math.max(0, (lines - 4) * 22);
+  $findCounter.textContent = `${findIndex + 1} / ${findMatches.length}`;
+  if (!keepFocus) $editor.focus();
+}
+
+$findInput.addEventListener('input', () => {
+  runFind($findInput.value, true); // true = keepFocus
+});
+$findInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    goToFindMatch(e.shiftKey ? findIndex - 1 : findIndex + 1);
+  } else if (e.key === 'Escape') {
+    closeFindBar();
+    $editor.focus();
+  }
+});
+$findPrev.addEventListener('click', () => goToFindMatch(findIndex - 1));
+$findNext.addEventListener('click', () => goToFindMatch(findIndex + 1));
+$findClose.addEventListener('click', () => { closeFindBar(); $editor.focus(); });
+
+// === SECTION: COMMAND PALETTE ===
+const $paletteOverlay = document.getElementById('palette-overlay');
+const $paletteInput = document.getElementById('palette-input');
+const $paletteList = document.getElementById('palette-list');
+let paletteSelectedIdx = 0;
+let paletteFiltered = [];
+
+function openPalette() {
+  $paletteInput.value = '';
+  paletteSelectedIdx = 0;
+  renderPaletteList('');
+  $paletteOverlay.classList.add('active');
+  $paletteInput.focus();
+}
+
+function closePalette() {
+  $paletteOverlay.classList.remove('active');
+}
+
+function renderPaletteList(q) {
+  const lq = q.toLowerCase();
+  paletteFiltered = lq
+    ? notes.filter(n =>
+        n.filename.toLowerCase().includes(lq) ||
+        n.tags.some(t => t.toLowerCase().includes(lq)) ||
+        n.content.toLowerCase().includes(lq))
+    : [...notes];
+  paletteFiltered = paletteFiltered.slice(0, 12);
+  $paletteList.innerHTML = '';
+  paletteFiltered.forEach((n, i) => {
+    const item = document.createElement('div');
+    item.className = 'palette-item' + (i === paletteSelectedIdx ? ' selected' : '');
+    const nameEl = document.createElement('span');
+    nameEl.className = 'palette-item-name';
+    setHighlighted(nameEl, n.filename, lq);
+    const dateEl = document.createElement('span');
+    dateEl.className = 'palette-item-date';
+    dateEl.textContent = relativeDate(n.updated_at);
+    item.appendChild(nameEl);
+    item.appendChild(dateEl);
+    item.addEventListener('click', () => { openNote(n.id); closePalette(); if (isMobile) hideMobileList(); });
+    $paletteList.appendChild(item);
+  });
+}
+
+$paletteInput.addEventListener('input', () => {
+  paletteSelectedIdx = 0;
+  renderPaletteList($paletteInput.value.trim());
+});
+$paletteInput.addEventListener('keydown', e => {
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    paletteSelectedIdx = Math.min(paletteSelectedIdx + 1, paletteFiltered.length - 1);
+    renderPaletteList($paletteInput.value.trim());
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    paletteSelectedIdx = Math.max(paletteSelectedIdx - 1, 0);
+    renderPaletteList($paletteInput.value.trim());
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    const sel = paletteFiltered[paletteSelectedIdx];
+    if (sel) { openNote(sel.id); closePalette(); if (isMobile) hideMobileList(); }
+  } else if (e.key === 'Escape') {
+    closePalette();
+  }
+});
+$paletteOverlay.addEventListener('click', e => { if (e.target === $paletteOverlay) closePalette(); });
+
+// === SECTION: ICONS (Lucide, inline SVG) ===
+// Inner path data from lucide.dev (ISC license). Inline SVG inherits color
+// via currentColor, so hover/active states style properly — unlike the old
+// emojis, which ignored CSS color and looked different on every platform.
+const ICONS = {
+  'hourglass': '<path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/>',
+  'arrow-left': '<path d="m12 19-7-7 7-7" /> <path d="M19 12H5" />',
+  'calendar-days': '<path d="M8 2v4" /> <path d="M16 2v4" /> <rect width="18" height="18" x="3" y="4" rx="2" /> <path d="M3 10h18" /> <path d="M8 14h.01" /> <path d="M12 14h.01" /> <path d="M16 14h.01" /> <path d="M8 18h.01" /> <path d="M12 18h.01" /> <path d="M16 18h.01" />',
+  'chevron-down': '<path d="m6 9 6 6 6-6" />',
+  'chevron-up': '<path d="m18 15-6-6-6 6" />',
+  'chevrons-down-up': '<path d="m7 20 5-5 5 5" /> <path d="m7 4 5 5 5-5" />',
+  'chevrons-up-down': '<path d="m7 15 5 5 5-5" /> <path d="m7 9 5-5 5 5" />',
+  'code': '<path d="m16 18 6-6-6-6" /> <path d="m8 6-6 6 6 6" />',
+  'eye': '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" /> <circle cx="12" cy="12" r="3" />',
+  'file-text': '<path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" /> <path d="M14 2v5a1 1 0 0 0 1 1h5" /> <path d="M10 9H8" /> <path d="M16 13H8" /> <path d="M16 17H8" />',
+  'history': '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /> <path d="M3 3v5h5" /> <path d="M12 7v5l4 2" />',
+  'inbox': '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12" /> <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />',
+  'menu': '<path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" />',
+  'monitor': '<rect width="20" height="14" x="2" y="3" rx="2" /> <line x1="8" x2="16" y1="21" y2="21" /> <line x1="12" x2="12" y1="17" y2="21" />',
+  'moon': '<path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" />',
+  'sun': '<circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" />',
+  'pencil': '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" /> <path d="m15 5 4 4" />',
+  'pin': '<path d="M12 17v5" /> <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />',
+  'plus': '<path d="M5 12h14" /> <path d="M12 5v14" />',
+  'refresh-cw': '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" /> <path d="M21 3v5h-5" /> <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" /> <path d="M8 16H3v5" />',
+  'tags': '<path d="M13.172 2a2 2 0 0 1 1.414.586l6.71 6.71a2.4 2.4 0 0 1 0 3.408l-4.592 4.592a2.4 2.4 0 0 1-3.408 0l-6.71-6.71A2 2 0 0 1 6 9.172V3a1 1 0 0 1 1-1z" /> <path d="M2 7v6.172a2 2 0 0 0 .586 1.414l6.71 6.71a2.4 2.4 0 0 0 3.191.193" /> <circle cx="10.5" cy="6.5" r=".5" fill="currentColor" />',
+  'trash-2': '<path d="M10 11v6" /> <path d="M14 11v6" /> <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /> <path d="M3 6h18" /> <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />',
+  'x': '<path d="M18 6 6 18" /> <path d="m6 6 12 12" />',
+};
+
+function icon(name) {
+  return '<svg class="lucide" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+    'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    (ICONS[name] || '') + '</svg>';
+}
+
+// Static buttons get their icons injected once at startup
+(function applyStaticIcons() {
+  const map = {
+    'btn-back': 'arrow-left', 'btn-menu': 'menu', 'btn-search-clear': 'x',
+    'btn-sync': 'refresh-cw', 'btn-today': 'calendar-days',
+    'filename-back-btn': 'arrow-left', 'filename-icon': 'file-text',
+    'filename-edit-btn': 'pencil', 'filename-pin-btn': 'pin',
+    'filename-history-btn': 'history', 'filename-preview-btn': 'eye',
+    'filename-delete-btn': 'trash-2', 'error-bar-dismiss': 'x',
+    'find-prev': 'chevron-up', 'find-next': 'chevron-down', 'find-close': 'x',
+    'trash-back': 'arrow-left', 'trash-close': 'x',
+    'history-back': 'arrow-left', 'history-close': 'x',
+    'fab': 'plus', 'btn-ephemeral': 'hourglass',
+  };
+  for (const [id, name] of Object.entries(map)) {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = icon(name);
+  }
+  document.getElementById('btn-trash').innerHTML = icon('trash-2') + '<span>Trash</span>';
+  document.getElementById('btn-new').innerHTML = icon('plus') + '<span>New</span>';
+  $btnCollapseAll.innerHTML = icon('chevrons-down-up') + '<span>collapse all</span>';
+})();
+
+// === SECTION: THEME TOGGLE ===
+// Cycles auto → dark → light. Auto (default) follows the system; the other
+// two pin the theme via data-theme on <html>. A head script applies the
+// pinned mode before first paint.
+const $btnTheme = document.getElementById('btn-theme');
+const THEME_ORDER = ['auto', 'dark', 'light'];
+const THEME_ICONS = { auto: 'monitor', dark: 'moon', light: 'sun' };
+let themeMode = localStorage.getItem('hexnotes_theme');
+if (!THEME_ORDER.includes(themeMode)) themeMode = 'auto';
+
+function applyTheme(mode) {
+  if (mode === 'auto') document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.setAttribute('data-theme', mode);
+  $btnTheme.innerHTML = icon(THEME_ICONS[mode]);
+  $btnTheme.title = 'Theme: ' + mode;
+  const dark = mode === 'dark' ||
+    (mode === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', dark ? '#0d0d0d' : '#f5f5f5');
+}
+
+applyTheme(themeMode);
+$btnTheme.addEventListener('click', () => {
+  themeMode = THEME_ORDER[(THEME_ORDER.indexOf(themeMode) + 1) % THEME_ORDER.length];
+  localStorage.setItem('hexnotes_theme', themeMode);
+  applyTheme(themeMode);
+});
+// Keep the PWA status-bar color in sync when the system flips in auto mode
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  if (themeMode === 'auto') applyTheme('auto');
+});
+
+// === SECTION: PWA REGISTRATION ===
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
+
+// === SECTION: INIT ===
+(async function init() {
+  if (apiToken) {
+    showApp();
+  } else {
+    showAuth();
+  }
+})();
+
+// Pulse animation for save indicator
+const style = document.createElement('style');
+style.textContent = `@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }`;
+document.head.appendChild(style);
+</script>
+</body>
+</html>

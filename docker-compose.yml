@@ -1,0 +1,31 @@
+services:
+  hexnotes:
+    build: .
+    container_name: hexnotes
+    restart: unless-stopped
+    labels:
+      - "diun.enable=true"
+    environment:
+      - ADMIN_SECRET=${ADMIN_SECRET}
+    volumes:
+      - ./notes:/app/notes
+      - ./tokens.json:/app/tokens.json
+    ports:
+      # Loopback only. The reverse proxy reaches the app as hexnotes:8000 over
+      # the shared docker network, so this mapping is for host-side debugging
+      # and nothing else — published on 0.0.0.0 it put the app on every
+      # interface, with only the cloud firewall in front of it.
+      - "127.0.0.1:8888:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - default
+      - nginx_proxy_manager_default
+
+networks:
+  nginx_proxy_manager_default:
+    external: true
